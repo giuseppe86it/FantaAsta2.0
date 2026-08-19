@@ -2556,31 +2556,36 @@ function fa2PlayerIntelligenceHTML(p){
     return `<section class="pi-card missing"><div class="pi-head"><div><span>PLAYER INTELLIGENCE</span><b>Nessuna statistica associata</b><small>Feed ${esc(status.label)} · ${status.count||0} giocatori indicizzati</small></div><button class="ghost pi-refresh" onclick='refreshPlayerIntelligenceProfile(${idArg(p.id)})'>Aggiorna statistiche</button></div><p>Il giocatore non è ancora stato abbinato al dataset storico. Il Listone e l'asta continuano a funzionare normalmente.</p></section>`;
   }
   const latest=data.latest||{},w=data.weighted||{},seasons=Array.isArray(data.seasons)?data.seasons:[];
-  const source=(data.sources||[]).join(" + ")||"FBref";
+  const source=(data.sources||[]).join(" + ")||"API-Football";
   const stats=[
     ["Minuti",fa2StatInt(latest.minutes)],
     ["Titolare",fa2StatInt(latest.starts)],
+    ["Rating",fa2StatValue(latest.rating,2)],
     ["Gol",fa2StatValue(latest.goals,0)],
     ["Assist",fa2StatValue(latest.assists,0)],
-    ["xG",fa2StatValue(latest.xg,1)],
-    ["xA",fa2StatValue(latest.xa,1)],
     ["G+A /90",fa2StatValue(latest.ga90,2)],
-    ["npxG+xA /90",fa2StatValue(latest.npxgXa90,2)],
     ["Tiri /90",fa2StatValue(latest.shots90,2)],
+    ["In porta /90",fa2StatValue(latest.shotsOn90,2)],
     ["Passaggi chiave /90",fa2StatValue(latest.keyPasses90,2)],
+    ["Precisione passaggi",fa2StatValue(latest.passAccuracy,0)+"%"],
     ["Tkl+Int /90",fa2StatValue(latest.tacklesInterceptions90,2)],
+    ["Duelli vinti",fa2StatValue(latest.duelsWonPct,0)+"%"],
+    ["Dribbling /90",fa2StatValue(latest.dribbles90,2)],
     ["Cartellini /90",fa2StatValue(latest.cards90,2)]
   ];
-  if(Number.isFinite(Number(latest.savePct)))stats.push(["Parate %",fa2StatValue(latest.savePct,1)]);
-  if(Number.isFinite(Number(latest.cleanSheetPct)))stats.push(["Clean sheet %",fa2StatValue(latest.cleanSheetPct,1)]);
+  if(Number.isFinite(Number(latest.penaltiesScored)))stats.push(["Rigori segnati",fa2StatValue(latest.penaltiesScored,0)]);
+  if(Number.isFinite(Number(latest.penaltiesMissed)))stats.push(["Rigori sbagliati",fa2StatValue(latest.penaltiesMissed,0)]);
+  if(Number.isFinite(Number(latest.saves90)))stats.push(["Parate /90",fa2StatValue(latest.saves90,2)]);
+  if(Number.isFinite(Number(latest.savePct)))stats.push(["Parate %",fa2StatValue(latest.savePct,1)+"%"]);
+  if(Number.isFinite(Number(latest.penaltiesSaved)))stats.push(["Rigori parati",fa2StatValue(latest.penaltiesSaved,0)]);
   const historyRows=seasons.slice(0,3).map(x=>`<div class="pi-season-row"><b>${esc(x.seasonLabel||x.season||"—")}</b><span>${fa2StatInt(x.minutes)} min</span><span>${fa2StatValue(x.goals,0)} G</span><span>${fa2StatValue(x.assists,0)} A</span><span>${fa2StatValue(x.score,0)}/100</span></div>`).join("");
   return `<section class="pi-card ${status.className}">
     <div class="pi-head"><div><span>PLAYER INTELLIGENCE · ${esc(status.label)}</span><b>${Math.round(Number(data.score)||0)}/100 <small>affidabilità ${Math.round(Number(data.reliability)||0)}%</small></b><small>${esc(source)} · aggiornato ${esc(engine.formatAge())}</small></div><button class="ghost pi-refresh" onclick='refreshPlayerIntelligenceProfile(${idArg(p.id)})'>Aggiorna statistiche</button></div>
     <div class="pi-score-grid"><div><span>STORICO</span><b>${Math.round(Number(data.score)||0)}</b></div><div><span>TREND</span><b>${esc(fa2TrendLabel(data.trend))}</b></div><div><span>STAGIONE</span><b>${esc(latest.seasonLabel||latest.season||"—")}</b></div><div><span>POS. DATI</span><b>${esc(data.positionGroup||"—")}</b></div></div>
     <div class="pi-stats-grid">${stats.map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
-    <div class="pi-history-summary"><b>MEDIA PESATA ULTIME STAGIONI</b><span>${fa2StatInt(w.minutes)} min eq. · G+A/90 ${fa2StatValue(w.ga90,2)} · npxG+xA/90 ${fa2StatValue(w.npxgXa90,2)} · score ${fa2StatValue(data.score,0)}/100</span></div>
+    <div class="pi-history-summary"><b>MEDIA PESATA ULTIME STAGIONI</b><span>${fa2StatInt(w.minutes)} min eq. · rating ${fa2StatValue(w.rating,2)} · G+A/90 ${fa2StatValue(w.ga90,2)} · score ${fa2StatValue(data.score,0)}/100</span></div>
     ${historyRows?`<div class="pi-seasons"><b>STORICO</b>${historyRows}</div>`:""}
-    <div class="pi-source-note">Fonte storica Alpha 3: ${esc(source)}. Titolarità probabile e Listone restano alimentati dai feed Fantacalcio già presenti.</div>
+    <div class="pi-source-note">Fonte storica Alpha 3.1: ${esc(source)}. Titolarità probabile e Listone restano alimentati dai feed Fantacalcio già presenti.</div>
   </section>`;
 }
 async function refreshPlayerIntelligenceProfile(id){
@@ -3265,7 +3270,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 2 — Regulation + Strategy Intelligence

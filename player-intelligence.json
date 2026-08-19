@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "generatedAt": "",
+  "sourceName": "API-Football / API-Sports",
+  "players": {},
+  "meta": {
+    "players": 0,
+    "seasonsAttempted": ["2025/26", "2024/25"],
+    "seasonsLoaded": [],
+    "sources": {
+      "apiFootball": "pending",
+      "fantacalcio": "live-lineups-existing-feed",
+      "fbref": "disabled-captcha",
+      "sportmonks": "optional-future",
+      "sofascore": "planned"
+    }
+  }
+}
