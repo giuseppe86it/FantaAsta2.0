@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""FantaAsta2.0 alpha 3.1 — genera player-intelligence.json da API-Football.
+"""FantaAsta2.0 alpha 3.2 — genera player-intelligence.json da API-Football.
 
 Nessuno scraping e nessun CAPTCHA: il job interroga l'API ufficiale API-SPORTS
 (API-Football v3) usando la chiave salvata come GitHub Actions Secret.
@@ -33,8 +33,8 @@ API_BASE = "https://v3.football.api-sports.io"
 API_KEY = os.environ.get("APISPORTS_KEY", "").strip()
 LEAGUE_ID = int(os.environ.get("FA2_PI_LEAGUE_ID", "135"))  # Serie A Italia
 MIN_VALID_PLAYERS = int(os.environ.get("FA2_PI_MIN_PLAYERS", "120"))
-# Al 19/08/2026: 2025/26 e 2024/25 sono le due stagioni complete più recenti.
-SEASONS = [int(x.strip()) for x in os.environ.get("FA2_PI_SEASONS", "2025,2024").split(",") if x.strip()]
+# Piano Free API-Football: usiamo 2024/25 e 2023/24, accessibili al piano gratuito.
+SEASONS = [int(x.strip()) for x in os.environ.get("FA2_PI_SEASONS", "2024,2023").split(",") if x.strip()]
 SEASON_WEIGHTS = {season: max(0.42, 1.0 - i * 0.28) for i, season in enumerate(SEASONS)}
 MAX_REQUESTS = int(os.environ.get("FA2_PI_MAX_REQUESTS", "90"))
 REQUEST_DELAY = float(os.environ.get("FA2_PI_REQUEST_DELAY", "6.2"))
@@ -117,15 +117,74 @@ def coverage_check(season: int) -> dict[str, Any]:
     return {"available": True, "coverage": coverage}
 
 
-def fetch_season(season: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    first = api_get("/players", {"league": LEAGUE_ID, "season": season, "page": 1})
+def fetch_teams(season: int) -> list[dict[str, Any]]:
+    """Recupera le squadre della competizione con una sola richiesta."""
+    data = api_get("/teams", {"league": LEAGUE_ID, "season": season})
+    out = []
+    for row in data.get("response") or []:
+        team = row.get("team") or {}
+        tid = team.get("id")
+        if tid:
+            out.append({"id": int(tid), "name": str(team.get("name") or tid)})
+    return out
+
+
+def fetch_team_players(team: dict[str, Any], season: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Scarica una rosa una squadra alla volta.
+
+    Il piano Free limita il parametro page a 3, ma una singola rosa rientra
+    normalmente entro questo limite. In caso contrario salviamo le prime 3
+    pagine e segnaliamo il troncamento nel meta del feed.
+    """
+    params = {"team": team["id"], "season": season, "page": 1}
+    first = api_get("/players", params)
     paging = first.get("paging") or {}
     total_pages = int(paging.get("total") or 1)
+    allowed_pages = min(total_pages, 3)
     rows = list(first.get("response") or [])
-    for page in range(2, total_pages + 1):
-        data = api_get("/players", {"league": LEAGUE_ID, "season": season, "page": page})
+    for page in range(2, allowed_pages + 1):
+        if REQUEST_COUNT >= MAX_REQUESTS:
+            break
+        data = api_get("/players", {"team": team["id"], "season": season, "page": page})
         rows.extend(data.get("response") or [])
-    return rows, {"rows": len(rows), "pages": total_pages}
+    return rows, {
+        "teamId": team["id"],
+        "team": team["name"],
+        "rows": len(rows),
+        "pages": allowed_pages,
+        "pagesReported": total_pages,
+        "truncated": total_pages > allowed_pages,
+    }
+
+
+def fetch_season(season: int) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Strategia compatibile col piano Free: squadre -> giocatori per squadra."""
+    teams = fetch_teams(season)
+    rows: list[dict[str, Any]] = []
+    team_status: list[dict[str, Any]] = []
+    completed = 0
+    for team in teams:
+        # Manteniamo un piccolo margine sotto la quota di sicurezza.
+        if REQUEST_COUNT >= MAX_REQUESTS - 1:
+            break
+        try:
+            team_rows, details = fetch_team_players(team, season)
+            rows.extend(team_rows)
+            team_status.append(details)
+            completed += 1
+            print(f"  {team['name']}: {len(team_rows)} giocatori / {details['pages']} pagine")
+        except Exception as exc:
+            team_status.append({"teamId": team["id"], "team": team["name"], "error": str(exc)})
+            print(f"  {team['name']}: FALLITA: {exc}", file=sys.stderr)
+            if "rate" in str(exc).lower() or "429" in str(exc) or "limit" in str(exc).lower():
+                break
+    return rows, {
+        "rows": len(rows),
+        "teamsReported": len(teams),
+        "teamsCompleted": completed,
+        "complete": bool(teams) and completed == len(teams),
+        "teams": team_status,
+    }
 
 
 def pick_league_stats(item: dict[str, Any]) -> dict[str, Any]:
@@ -248,6 +307,67 @@ def extract_stats(item: dict[str, Any], season: int) -> dict[str, Any] | None:
     }
 
 
+
+def merge_same_player_season(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Unisce eventuali spezzoni della stessa stagione (es. trasferimento tra club)."""
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for x in rows:
+        ident = str(x.get("apiId") or normalize_name(x.get("name")))
+        grouped[f"{ident}:{x.get('season')}"].append(x)
+
+    per90_fields = [
+        "ga90", "shots90", "shotsOn90", "keyPasses90", "passes90",
+        "tacklesInterceptions90", "dribbles90", "foulsCommitted90",
+        "cards90", "saves90",
+    ]
+    weighted_fields = ["rating", "passAccuracy", "duelsWonPct", "savePct"]
+    total_fields = [
+        "minutes", "apps", "starts", "goals", "assists",
+        "penaltiesScored", "penaltiesMissed", "penaltiesSaved",
+    ]
+
+    merged: list[dict[str, Any]] = []
+    for items in grouped.values():
+        if len(items) == 1:
+            merged.append(items[0])
+            continue
+
+        base = dict(max(items, key=lambda z: num(z.get("minutes")) or 0))
+        total_minutes = sum(num(z.get("minutes")) or 0 for z in items)
+        base["aliases"] = sorted({a for z in items for a in (z.get("aliases") or []) if a})
+        base["team"] = " / ".join(dict.fromkeys(str(z.get("team") or "") for z in items if z.get("team")))
+
+        for field in total_fields:
+            vals = [num(z.get(field)) for z in items]
+            base[field] = round_or_none(sum(v or 0 for v in vals), 3) if any(v is not None for v in vals) else None
+
+        total_n90 = total_minutes / 90 if total_minutes else 0
+        for field in per90_fields:
+            numer = 0.0
+            has = False
+            for z in items:
+                v = num(z.get(field))
+                mins = num(z.get("minutes")) or 0
+                if v is not None and mins > 0:
+                    numer += v * (mins / 90)
+                    has = True
+            base[field] = round_or_none(numer / total_n90, 3) if has and total_n90 else None
+
+        for field in weighted_fields:
+            vals = []
+            for z in items:
+                v = num(z.get(field))
+                mins = num(z.get("minutes")) or 0
+                if v is not None:
+                    vals.append((v, max(1.0, mins)))
+            if vals:
+                sw = sum(w for _, w in vals)
+                base[field] = round_or_none(sum(v * w for v, w in vals) / sw, 3)
+
+        merged.append(base)
+    return merged
+
+
 def percentile(values: list[float], value: float | None, inverse: bool = False) -> float | None:
     if value is None:
         return None
@@ -306,7 +426,7 @@ def build_payload(rows_by_season: dict[int, list[dict[str, Any]]], source_status
             stats = extract_stats(row, season)
             if stats:
                 extracted.append(stats)
-        season_stats_all[season] = extracted
+        season_stats_all[season] = merge_same_player_season(extracted)
 
     player_seasons: dict[str, list[dict[str, Any]]] = defaultdict(list)
     identities: dict[str, dict[str, Any]] = {}
@@ -411,9 +531,7 @@ def main() -> int:
     for season in SEASONS:
         label = season_label(season)
         try:
-            cov = coverage_check(season)
             rows, details = fetch_season(season)
-            details["coverage"] = cov.get("coverage", {})
             status[label] = details
             if rows:
                 rows_by_season[season] = rows
