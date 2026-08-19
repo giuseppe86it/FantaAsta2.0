@@ -1,31 +1,14 @@
 {
   "schema": 1,
-  "generatedAt": "2026-08-19T22:14:01.846760Z",
+  "generatedAt": "",
   "sourceName": "API-Football / API-Sports",
   "players": {},
   "meta": {
     "players": 0,
-    "requestsUsed": 6,
-    "leagueId": 135,
-    "seasonsAttempted": [
-      "2025/26",
-      "2024/25"
-    ],
     "seasonsLoaded": [],
     "sources": {
-      "apiFootball": "active",
-      "fantacalcio": "live-lineups-existing-feed",
-      "fbref": "disabled-captcha",
-      "sportmonks": "optional-future",
-      "sofascore": "planned"
-    },
-    "sourceStatus": {
-      "2025/26": {
-        "error": "API-Football: {'plan': 'Free plans do not have access to this season, try from 2022 to 2024.'}"
-      },
-      "2024/25": {
-        "error": "API-Football: {'plan': 'Free plans are limited to a maximum value of 3 for the Page parameter'}"
-      }
+      "apiFootball": "pending-alpha3.2",
+      "fbref": "disabled-captcha"
     }
   }
 }
