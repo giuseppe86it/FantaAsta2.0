@@ -1,13 +1,29 @@
 {
+  "schema": 2,
+  "id": "mia-lega",
   "name": "La mia lega",
+  "season": "2026/27",
   "availability": "single",
   "gameMode": "mantra",
   "budget": {"initial": 2500, "minBid": 1, "minResidualPerSlot": 1},
   "roster": {"total": 25, "goalkeepers": 3, "movement": 22, "clubLimit": 5},
   "underRules": [
-    {"id":"u23","enabled":true,"maxAge":23,"birthYearFrom":2003,"min":2,"label":"U23"},
-    {"id":"u21","enabled":true,"maxAge":21,"birthYearFrom":2005,"min":1,"label":"U21"}
+    {"id": "u23", "enabled": true, "maxAge": 23, "birthYearFrom": 2003, "min": 2, "label": "U23"},
+    {"id": "u21", "enabled": true, "maxAge": 21, "birthYearFrom": 2005, "min": 1, "label": "U21"}
   ],
-  "bench": {"size":12,"minGoalkeepers":1,"movement":"variable"},
-  "switchMode":"plus"
+  "bench": {"size": 12, "minGoalkeepers": 1, "movement": "variable"},
+  "formation": {"timeoutMinutes": 5, "hidden": false, "missingLineup": "previous"},
+  "switchMode": "plus",
+  "scoring": {
+    "source": "fantacalcio",
+    "bonuses": {"goal": 3, "goalAgainst": -1, "penaltyScored": 3, "penaltyMissed": -3, "penaltySaved": 3, "yellow": -0.5, "red": -1, "assistStandard": 1, "assistSoft": 1, "assistGold": 1, "ownGoal": -2, "equalizer": 0, "winner": 0, "cleanSheet": 1, "playerOfMatch": 0.5},
+    "goalThreshold": {"firstGoal": 66, "mode": "fixed", "step": 6},
+    "bookedNoVote": true
+  },
+  "modifiers": {
+    "dFactor": {"enabled": true, "includeGoalkeeper": true, "applyTo": "own", "preset": "recommended"},
+    "performance": {"enabled": false},
+    "fairplay": {"enabled": true, "bonus": 0.5},
+    "captain": {"enabled": false, "bands": []}
+  }
 }

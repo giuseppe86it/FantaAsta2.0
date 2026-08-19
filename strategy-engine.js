@@ -1,7 +1,9 @@
-/* FantaAsta2.0 — Strategy Engine alpha 1
-   Mono modulo, doppio modulo, AUTO Listone. */
+/* FantaAsta2.0 — Strategy Engine alpha 2
+   Strategy Score: qualità, titolarità LIVE, profondità, costo,
+   flessibilità, regolamento e scarsità per slot. */
 (function(){
-  const STORAGE_KEY="fa2_strategy_v1";
+  const STORAGE_KEY="fa2_strategy_v2";
+  const LEGACY_KEY="fa2_strategy_v1";
   const MODULES=[
     {id:"343",name:"3-4-3",slots:[["Por"],["Dc"],["Dc"],["Dc","B"],["E"],["M","C"],["C"],["E"],["W","A"],["A","Pc"],["W","A"]]},
     {id:"3412",name:"3-4-1-2",slots:[["Por"],["Dc"],["Dc"],["Dc","B"],["E"],["M","C"],["C"],["E"],["T"],["A","Pc"],["A","Pc"]]},
@@ -15,68 +17,216 @@
     {id:"4411",name:"4-4-1-1",slots:[["Por"],["Dd"],["Dc"],["Dc"],["Ds"],["M"],["C"],["E","W"],["E","W"],["T","A"],["A","Pc"]]},
     {id:"4231",name:"4-2-3-1",slots:[["Por"],["Dd"],["Dc"],["Dc"],["Ds"],["M"],["M","C"],["W","T"],["T"],["W","A"],["A","Pc"]]}
   ];
-  const DEFAULT_PROFILE={schema:1,mode:"mono",primary:"433",secondary:"4231",autoTopN:2,lastGeneratedAt:0};
+  const DEFAULT_PROFILE={schema:2,mode:"mono",primary:"433",secondary:"4231",autoTopN:2,lastGeneratedAt:0};
   const ROLE_MACRO={Por:"POR",Dd:"DIF",Ds:"DIF",Dc:"DIF",B:"DIF",E:"CEN",M:"CEN",C:"CEN",W:"ATT",T:"ATT",A:"ATT",Pc:"ATT"};
+  const D_FACTOR_ROLES=new Set(["Dc","B","Dd","Ds","E","M"]);
   const clone=v=>JSON.parse(JSON.stringify(v));
-  function loadProfile(){try{return {...DEFAULT_PROFILE,...JSON.parse(localStorage.getItem(STORAGE_KEY)||"{}")}}catch{return clone(DEFAULT_PROFILE)}}
-  function saveProfile(p){const x={...DEFAULT_PROFILE,...p};localStorage.setItem(STORAGE_KEY,JSON.stringify(x));return x}
+  const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,Number(v)||0));
+  const avg=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
+  const round=v=>Math.round(Number(v)||0);
+
+  function loadProfile(){
+    let raw={};
+    try{raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||localStorage.getItem(LEGACY_KEY)||"{}")||{}}catch{}
+    return {...DEFAULT_PROFILE,...raw,schema:2};
+  }
+  function saveProfile(p){const x={...DEFAULT_PROFILE,...p,schema:2};localStorage.setItem(STORAGE_KEY,JSON.stringify(x));return x}
   function moduleById(id){return MODULES.find(x=>x.id===id)||MODULES.find(x=>x.id==="433")}
   function roleTokens(p){return String(p?.role||"").split("/").filter(Boolean)}
   function compatible(p,roles){const t=roleTokens(p);return roles.some(r=>t.includes(r))}
-  function quality(p){
-    const fvm=Math.max(0,Number(p?.fvm)||0), max=Math.max(0,Number(p?.maxPrice||p?.marketMax)||0);
-    const starter=Number(p?.starterProbability??p?.starterProb??0);
-    return fvm*1.0+Math.min(max,400)*0.08+(starter>0?starter*0.25:0)+(p?.strategic?8:0);
+  function isAvailable(p,ctx){return (!ctx?.isAssigned||!ctx.isAssigned(p))&&(!ctx?.isEligible||ctx.isEligible(p))}
+  function starterProb(p,ctx){
+    if(ctx?.starterProbability){const x=ctx.starterProbability(p);return clamp(typeof x==="object"?x?.prob:x)}
+    return clamp(p?.starterProbability??p?.starterProb??45);
   }
-  function isAvailable(p,ctx){return !ctx?.isAssigned||!ctx.isAssigned(p)}
-  function slotMarket(players,roles,ctx){
-    const pool=(players||[]).filter(p=>isAvailable(p,ctx)&&compatible(p,roles)).sort((a,b)=>quality(b)-quality(a));
-    const top=pool.slice(0,10);
-    const q=top.length?top.reduce((s,p)=>s+quality(p),0)/top.length:0;
-    const scarcity=Math.max(0,1-Math.min(pool.length,30)/30);
-    return {count:pool.length,quality:q,scarcity,top:pool.slice(0,3)};
+  function basePrice(p,ctx){
+    if(ctx?.playerQuality)return Math.max(0,Number(ctx.playerQuality(p))||0);
+    return Math.max(0,Number(p?.maxPrice||p?.marketMax||Math.round(Number(p?.fvm||0)*2.5))||0);
+  }
+  function playerIsUnder(p,rule,ctx){
+    if(ctx?.isUnder)return !!ctx.isUnder(p,rule);
+    const y=Number(p?.birthYear||String(p?.birthDate||"").slice(0,4)||0);
+    if(rule?.birthYearFrom&&y)return y>=Number(rule.birthYearFrom);
+    if(rule?.id==="u21")return !!p?.u21;
+    if(rule?.id==="u23")return !!p?.u23||!!p?.u21;
+    return false;
+  }
+  function environment(players,reg,ctx){
+    const available=(players||[]).filter(p=>isAvailable(p,ctx));
+    const maxFvm=Math.max(1,...available.map(p=>Number(p?.fvm)||0));
+    const maxPrice=Math.max(1,...available.map(p=>basePrice(p,ctx)));
+    const underRules=(reg?.underRules||[]).filter(x=>x.enabled&&Number(x.min)>0);
+    return {available,maxFvm,maxPrice,underRules,reg,ctx};
+  }
+  function playerMetrics(p,env){
+    const fvm=Math.max(0,Number(p?.fvm)||0),price=basePrice(p,env.ctx),starter=starterProb(p,env.ctx),roles=roleTokens(p);
+    const fvmScore=clamp(100*Math.sqrt(fvm/env.maxFvm));
+    const pricePower=clamp(100*Math.sqrt(price/env.maxPrice));
+    const flex=clamp((roles.length-1)*32+(roles.length>=3?8:0));
+    const underMatches=env.underRules.filter(r=>playerIsUnder(p,r,env.ctx)).length;
+    const youth=env.underRules.length?100*underMatches/env.underRules.length:50;
+    const intelligence=clamp(fvmScore*.44+pricePower*.18+starter*.25+flex*.08+youth*.05);
+    const efficiency=clamp(68+(intelligence-pricePower)*.48);
+    return {intelligence,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
+  }
+  function slotKey(roles){return roles.slice().sort().join("/")}
+  function demandFor(module,roles){const key=slotKey(roles);return module.slots.filter(x=>slotKey(x)===key).length}
+  function slotMarket(module,roles,env){
+    const demand=Math.max(1,demandFor(module,roles));
+    const candidates=env.available.filter(p=>compatible(p,roles)).map(p=>({p,m:playerMetrics(p,env)})).sort((a,b)=>b.m.intelligence-a.m.intelligence||b.m.starter-a.m.starter);
+    const sample=candidates.slice(0,Math.max(8,demand*7));
+    const strong=candidates.filter(x=>x.m.intelligence>=52&&x.m.starter>=38);
+    const effectiveSupply=candidates.slice(0,30).reduce((s,x)=>s+clamp((x.m.intelligence-28)/58,0,1)*(0.55+x.m.starter/220),0);
+    const targetSupply=demand*7.2;
+    let scarcity=clamp((1-Math.min(1,effectiveSupply/targetSupply))*100);
+    if(candidates.length<demand*6)scarcity=Math.max(scarcity,clamp((1-candidates.length/(demand*6))*100));
+    const depth=clamp(100-scarcity*.72+(Math.min(strong.length,demand*8)/(demand*8))*28);
+    return {
+      roles:roles.slice(),key:slotKey(roles),demand,count:candidates.length,strongCount:strong.length,
+      quality:round(avg(sample.map(x=>x.m.intelligence))),starter:round(avg(sample.map(x=>x.m.starter))),
+      depth:round(depth),scarcity:round(scarcity),efficiency:round(avg(sample.map(x=>x.m.efficiency))),
+      flexibility:round(avg(sample.map(x=>x.m.flex))),
+      top:candidates.slice(0,3).map(x=>({id:x.p.id,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),starter:round(x.m.starter),price:round(x.m.price)}))
+    };
+  }
+  function analyseSlots(module,env){
+    const cache=new Map();
+    return module.slots.map(roles=>{
+      const key=slotKey(roles);
+      if(!cache.has(key))cache.set(key,slotMarket(module,roles,env));
+      return {...cache.get(key),roles:roles.slice()};
+    });
+  }
+  function bestXI(module,slotRows,env){
+    const slots=module.slots.map((roles,i)=>({i,roles,row:slotRows[i]})).sort((a,b)=>b.row.scarcity-a.row.scarcity||a.row.count-b.row.count);
+    const used=new Set(),selected=[];
+    for(const s of slots){
+      const pool=env.available.filter(p=>!used.has(String(p.id))&&compatible(p,s.roles)).map(p=>({p,m:playerMetrics(p,env)})).sort((a,b)=>b.m.intelligence-a.m.intelligence);
+      const pick=pool[0];
+      if(pick){used.add(String(pick.p.id));selected.push({slot:s.i,roles:s.roles,p:pick.p,m:pick.m})}
+    }
+    selected.sort((a,b)=>a.slot-b.slot);
+    return selected;
+  }
+  function regulationFit(module,selected,env){
+    const reg=env.reg||{},rules=env.underRules;
+    const selectedPlayers=selected.map(x=>x.p);
+    const underHealth=rules.length?avg(rules.map(rule=>{
+      const pool=env.available.filter(p=>compatibleAnyModule(p,module)&&playerIsUnder(p,rule,env.ctx));
+      const target=Math.max(1,Number(rule.min)||0)*8;
+      return clamp(pool.length/target*100);
+    })):75;
+    const moduleFlex=avg(module.slots.slice(1).map(x=>x.length>1?100:0));
+    const selectedFlex=avg(selected.map(x=>x.m.flex));
+    let switchFit=65;
+    if(reg.switchMode==="plus")switchFit=clamp(55+moduleFlex*.23+selectedFlex*.22);
+    else if(reg.switchMode==="switch")switchFit=clamp(58+selectedFlex*.18);
+    else switchFit=65;
+    let dFit=70;
+    if(reg?.modifiers?.dFactor?.enabled){
+      const defenders=selected.filter(x=>x.roles.some(r=>D_FACTOR_ROLES.has(r)));
+      dFit=clamp(45+defenders.length*5+avg(defenders.map(x=>x.m.intelligence))*.22+(reg.modifiers.dFactor.includeGoalkeeper?3:0));
+    }
+    return round(underHealth*.40+switchFit*.30+dFit*.30);
+  }
+  function compatibleAnyModule(p,module){return module.slots.some(r=>compatible(p,r))}
+  function moduleFlexibility(module,selected,reg){
+    const structural=avg(module.slots.slice(1).map(r=>r.length>1?100:0));
+    const playerFlex=avg(selected.map(x=>x.m.flex));
+    const boost=reg?.switchMode==="plus"?8:reg?.switchMode==="switch"?3:0;
+    return round(clamp(structural*.43+playerFlex*.57+boost));
+  }
+  function costScore(selected,reg){
+    const budget=Math.max(1,Number(reg?.budget?.initial)||2500);
+    const xiCost=selected.reduce((s,x)=>s+x.m.price,0);
+    const ratio=xiCost/budget;
+    const efficiency=avg(selected.map(x=>x.m.efficiency));
+    const pressure=ratio<=.48?95:ratio<=.65?88:ratio<=.82?76:ratio<=1?60:Math.max(25,60-(ratio-1)*80);
+    return {score:round(clamp(pressure*.55+efficiency*.45)),xiCost:round(xiCost),ratio};
   }
   function moduleScore(module,players,reg,ctx){
-    const slotRows=module.slots.slice(1).map(roles=>slotMarket(players,roles,ctx));
-    const coverage=slotRows.reduce((s,r)=>s+Math.min(1,r.count/8),0)/slotRows.length;
-    const q=slotRows.reduce((s,r)=>s+Math.min(100,r.quality/2.4),0)/slotRows.length;
-    const scarcityRisk=slotRows.reduce((s,r)=>s+r.scarcity,0)/slotRows.length;
-    const flexibility=module.slots.slice(1).reduce((s,r)=>s+(r.length>1?1:0),0)/(module.slots.length-1);
-    const score=Math.round(Math.max(0,Math.min(100,coverage*42+q*0.42+flexibility*12-scarcityRisk*8)));
-    const critical=module.slots.slice(1).map((roles,i)=>({roles,row:slotRows[i]})).sort((a,b)=>b.row.scarcity-a.row.scarcity).slice(0,4);
-    return {module,score,coverage:Math.round(coverage*100),quality:Math.round(q),flexibility:Math.round(flexibility*100),scarcityRisk:Math.round(scarcityRisk*100),critical};
+    const env=environment(players,reg,ctx),slotRows=analyseSlots(module,env),selected=bestXI(module,slotRows,env);
+    const coverage=round(selected.length/module.slots.length*100);
+    const qualityXI=round(avg(selected.map(x=>x.m.intelligence)));
+    const starterXI=round(avg(selected.map(x=>x.m.starter)));
+    const depth=round(avg(slotRows.map(x=>x.depth)));
+    const avgScarcity=avg(slotRows.map(x=>x.scarcity)),maxScarcity=Math.max(0,...slotRows.map(x=>x.scarcity));
+    const scarcityRisk=round(avgScarcity*.62+maxScarcity*.38);
+    const flexibility=moduleFlexibility(module,selected,reg);
+    const cost=costScore(selected,reg);
+    const regulation=regulationFit(module,selected,env);
+    const scarcityHealth=100-scarcityRisk;
+    let score=qualityXI*.25+starterXI*.17+depth*.14+cost.score*.12+flexibility*.10+regulation*.10+scarcityHealth*.12;
+    score*=coverage/100;
+    score=round(clamp(score));
+    const uniqueCritical=new Map();
+    slotRows.forEach(r=>{const prev=uniqueCritical.get(r.key);if(!prev||r.scarcity>prev.scarcity)uniqueCritical.set(r.key,r)});
+    const critical=[...uniqueCritical.values()].sort((a,b)=>b.scarcity-a.scarcity||a.strongCount-b.strongCount).slice(0,4);
+    const explanation=explainModule({module,score,coverage,qualityXI,starterXI,depth,scarcityRisk,flexibility,cost,regulation,critical});
+    return {module,score,coverage,quality:qualityXI,starter:starterXI,depth,flexibility,scarcityRisk,cost:cost.score,xiCost:cost.xiCost,regulation,critical,selected:selected.map(x=>({slot:x.slot,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),starter:round(x.m.starter)})),explanation};
   }
-  function rankModules(players,reg,ctx){return MODULES.map(m=>moduleScore(m,players,reg,ctx)).sort((a,b)=>b.score-a.score)}
-  function macroWeights(module,players,reg,ctx){
-    const base={POR:0.08,DIF:0.20,CEN:0.27,ATT:0.45};
-    const slotCount={POR:0,DIF:0,CEN:0,ATT:0};
+  function explainModule(x){
+    const strengths=[],warnings=[];
+    if(x.starter>=72)strengths.push(`XI potenziale molto titolare (${x.starter}%)`);else if(x.starter<58)warnings.push(`Titolarità media da proteggere (${x.starter}%)`);
+    if(x.depth>=76)strengths.push(`Buona profondità del mercato (${x.depth}/100)`);else if(x.depth<58)warnings.push(`Alternative poco profonde (${x.depth}/100)`);
+    if(x.flexibility>=55)strengths.push(`Flessibilità Mantra alta (${x.flexibility}/100)`);
+    if(x.cost.score>=76)strengths.push(`Costo teorico sostenibile (${x.cost.score}/100)`);else if(x.cost.score<55)warnings.push(`Costruzione potenzialmente costosa (${x.cost.score}/100)`);
+    if(x.scarcityRisk>=35)warnings.push(`Scarsità significativa (${x.scarcityRisk}/100)`);
+    x.critical.filter(r=>r.scarcity>=18||r.strongCount<r.demand*6).slice(0,2).forEach(r=>warnings.push(`${r.roles.join("/")}: ${r.strongCount} profili forti, rischio ${r.scarcity}%`));
+    if(!strengths.length)strengths.push("Struttura equilibrata senza un vantaggio dominante");
+    if(!warnings.length)warnings.push("Nessuna criticità grave: monitorare comunque i prezzi reali");
+    return {strengths,warnings,priority:x.critical.slice(0,3).map(r=>r.roles.join("/"))};
+  }
+  function rankModules(players,reg,ctx){return MODULES.map(m=>moduleScore(m,players,reg,ctx)).sort((a,b)=>b.score-a.score||a.scarcityRisk-b.scarcityRisk||b.starter-a.starter)}
+  function moduleSimilarity(a,b){
+    const tokens=m=>m.slots.slice(1).map(r=>slotKey(r));
+    const A=tokens(a),B=tokens(b),used=new Set();let matches=0;
+    A.forEach(x=>{const idx=B.findIndex((y,i)=>!used.has(i)&&(y===x||y.split("/").some(r=>x.split("/").includes(r))));if(idx>=0){used.add(idx);matches++}});
+    return round(matches/Math.max(A.length,B.length)*100);
+  }
+  function bestAutoPair(ranked){
+    const top=ranked.slice(0,6);let best=null;
+    for(let i=0;i<top.length;i++)for(let j=i+1;j<top.length;j++){
+      const synergy=moduleSimilarity(top[i].module,top[j].module);
+      const score=round(top[i].score*.45+top[j].score*.35+synergy*.20);
+      if(!best||score>best.score)best={primary:top[i],secondary:top[j],synergy,score};
+    }
+    return best||{primary:top[0],secondary:top[1],synergy:0,score:top[0]?.score||0};
+  }
+  function macroWeights(moduleResult,reg){
+    const module=moduleResult.module,base={POR:.08,DIF:.20,CEN:.27,ATT:.45},struct={POR:0,DIF:0,CEN:0,ATT:0},risk={POR:0,DIF:0,CEN:0,ATT:0},counts={POR:0,DIF:0,CEN:0,ATT:0};
     module.slots.forEach((roles,i)=>{
-      if(i===0){slotCount.POR++;return}
       const macros=[...new Set(roles.map(r=>ROLE_MACRO[r]).filter(Boolean))];
-      macros.forEach(m=>slotCount[m]+=1/macros.length);
+      macros.forEach(m=>{struct[m]+=1/macros.length;counts[m]++});
+      const row=moduleResult.critical?.find(x=>x.key===slotKey(roles));
+      if(row)macros.forEach(m=>risk[m]+=row.scarcity/macros.length);
     });
-    const total=Object.values(slotCount).reduce((a,b)=>a+b,0)||11;
-    const structural={};Object.keys(base).forEach(k=>structural[k]=slotCount[k]/total);
-    const mixed={};Object.keys(base).forEach(k=>mixed[k]=base[k]*0.55+structural[k]*0.45);
-    const sum=Object.values(mixed).reduce((a,b)=>a+b,0)||1;
-    Object.keys(mixed).forEach(k=>mixed[k]/=sum);
-    const budget=Number(reg?.budget?.initial)||2500;
-    return Object.fromEntries(Object.entries(mixed).map(([k,v])=>[k,{pct:Math.round(v*100),credits:Math.round(v*budget)}]));
+    const total=Object.values(struct).reduce((a,b)=>a+b,0)||11,mix={};
+    Object.keys(base).forEach(k=>{
+      const structural=struct[k]/total,scarcityBoost=(risk[k]/Math.max(1,counts[k]))/100;
+      mix[k]=base[k]*.52+structural*.38+scarcityBoost*.10;
+    });
+    const sum=Object.values(mix).reduce((a,b)=>a+b,0)||1,budget=Math.max(1,Number(reg?.budget?.initial)||2500);
+    const entries=Object.entries(mix).map(([k,v])=>[k,v/sum]);
+    const out={};let credits=0;
+    entries.forEach(([k,v],i)=>{const c=i===entries.length-1?budget-credits:Math.round(v*budget);credits+=c;out[k]={pct:round(v*100),credits:c}});
+    return out;
   }
   function bridgeRoles(a,b){
-    const A=a.slots.slice(1).flat(),B=b.slots.slice(1).flat();
-    const all=[...new Set(A.concat(B))];
+    const A=a.slots.slice(1).flat(),B=b.slots.slice(1).flat(),all=[...new Set(A.concat(B))];
     return all.map(role=>({role,a:A.filter(x=>x===role).length,b:B.filter(x=>x===role).length})).filter(x=>x.a&&x.b).sort((x,y)=>(y.a+y.b)-(x.a+x.b));
   }
   function build(profile,players,reg,ctx){
-    const p={...DEFAULT_PROFILE,...profile,lastGeneratedAt:Date.now()};
+    const p={...DEFAULT_PROFILE,...profile,lastGeneratedAt:Date.now(),schema:2};
     if(p.mode==="auto"){
-      const ranked=rankModules(players,reg,ctx);p.primary=ranked[0]?.module.id||"433";p.secondary=ranked[1]?.module.id||"4231";
-      return {profile:saveProfile(p),mode:"auto",ranked,primary:ranked[0],secondary:ranked[1],budget:macroWeights(ranked[0].module,players,reg,ctx)};
+      const ranked=rankModules(players,reg,ctx),pair=bestAutoPair(ranked);
+      p.primary=pair.primary?.module.id||"433";p.secondary=pair.secondary?.module.id||"4231";
+      return {profile:saveProfile(p),mode:"auto",ranked,primary:pair.primary,secondary:pair.secondary,pairScore:pair.score,synergy:pair.synergy,budget:macroWeights(pair.primary,reg),bridges:pair.secondary?bridgeRoles(pair.primary.module,pair.secondary.module):[]};
     }
-    const primary=moduleScore(moduleById(p.primary),players,reg,ctx);
-    const secondary=p.mode==="dual"?moduleScore(moduleById(p.secondary),players,reg,ctx):null;
-    return {profile:saveProfile(p),mode:p.mode,primary,secondary,budget:macroWeights(primary.module,players,reg,ctx),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
+    const primary=moduleScore(moduleById(p.primary),players,reg,ctx),secondary=p.mode==="dual"?moduleScore(moduleById(p.secondary),players,reg,ctx):null;
+    const synergy=secondary?moduleSimilarity(primary.module,secondary.module):0;
+    const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
+    return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,moduleScore,build,macroWeights};
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,moduleScore,build,macroWeights,moduleSimilarity};
 })();

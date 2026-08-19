@@ -3054,8 +3054,52 @@ function renderLeagues(){
   $$(".unassigned-sale").forEach(btn=>btn.onclick=()=>editSold(btn.dataset.id));
 }
 
+function fa2RegUnderRow(reg,id,label){
+  const rule=(reg.underRules||[]).find(x=>x.id===id)||{id,label,enabled:false,min:0,birthYearFrom:id==="u21"?2005:2003};
+  return `<div class="fa2-reg-under-row"><label class="fa2-check"><input id="fa2_${id}_enabled" type="checkbox" ${rule.enabled?"checked":""}><span>${label}</span></label><label>Minimo<input id="fa2_${id}_min" type="number" min="0" max="${reg.roster.total}" value="${Number(rule.min)||0}"></label><label>Nati dal<input id="fa2_${id}_year" type="number" min="1900" max="2100" value="${Number(rule.birthYearFrom)||0}"></label></div>`;
+}
+function fa2RegulationCard(){
+  if(!window.FA2Regulation)return "";
+  const reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
+  return `<div class="card fa2-reg-settings-card"><div class="fa2-reg-settings-head"><div><span>FANTAASTA2.0 · REGULATION ENGINE</span><h3>Regolamento v2</h3><p>Queste regole alimentano il nuovo Strategy Engine. La vecchia Asta Live A/B resta separata durante l'alpha.</p></div><b>α2</b></div>
+    <div class="fa2-reg-mini"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
+    <details id="fa2RegDetails" class="fa2-reg-details"><summary>Modifica regolamento</summary>
+      <div class="fa2-reg-section"><b>Lega e asta</b><div class="fa2-reg-grid">
+        <label>Disponibilità<select id="fa2RegAvailability"><option value="single" ${reg.availability==="single"?"selected":""}>Singola</option><option value="multiple" ${reg.availability==="multiple"?"selected":""}>Multipla</option></select></label>
+        <label>Modalità<select id="fa2RegMode"><option value="mantra" ${reg.gameMode==="mantra"?"selected":""}>Mantra</option><option value="classic" ${reg.gameMode==="classic"?"selected":""}>Classic</option></select></label>
+        <label>Crediti<input id="fa2RegBudget" type="number" min="1" value="${reg.budget.initial}"></label>
+        <label>Limite stesso club<input id="fa2RegClub" type="number" min="0" value="${reg.roster.clubLimit}"></label>
+      </div></div>
+      <div class="fa2-reg-section"><b>Rosa</b><div class="fa2-reg-grid"><label>Totale giocatori<input id="fa2RegRoster" type="number" min="1" value="${reg.roster.total}"></label><label>Portieri<input id="fa2RegGk" type="number" min="1" value="${reg.roster.goalkeepers}"></label><label>Panchina<input id="fa2RegBench" type="number" min="0" value="${reg.bench.size}"></label><label>POR min panchina<input id="fa2RegBenchGk" type="number" min="0" value="${reg.bench.minGoalkeepers}"></label></div></div>
+      <div class="fa2-reg-section"><b>Criteri giovani</b>${fa2RegUnderRow(reg,"u23","U23")}${fa2RegUnderRow(reg,"u21","U21")}</div>
+      <div class="fa2-reg-section"><b>Formazione</b><div class="fa2-reg-grid"><label>Switch<select id="fa2RegSwitch"><option value="off" ${reg.switchMode==="off"?"selected":""}>Disattivato</option><option value="switch" ${reg.switchMode==="switch"?"selected":""}>Switch</option><option value="plus" ${reg.switchMode==="plus"?"selected":""}>Switch Plus</option></select></label><label>Timeout (min)<input id="fa2RegTimeout" type="number" min="0" value="${reg.formation.timeoutMinutes}"></label></div><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegHidden" type="checkbox" ${reg.formation.hidden?"checked":""}><span>Formazioni nascoste</span></label><label class="fa2-check"><input id="fa2RegBookedSV" type="checkbox" ${reg.scoring.bookedNoVote?"checked":""}><span>Ammonito SV = 5,5</span></label></div></div>
+      <div class="fa2-reg-section"><b>Bonus principali</b><div class="fa2-reg-grid"><label>Gol<input id="fa2BonusGoal" type="number" step="0.5" value="${reg.scoring.bonuses.goal}"></label><label>Assist standard<input id="fa2BonusAssist" type="number" step="0.5" value="${reg.scoring.bonuses.assistStandard}"></label><label>Porta inviolata<input id="fa2BonusClean" type="number" step="0.5" value="${reg.scoring.bonuses.cleanSheet}"></label><label>Ammonizione<input id="fa2BonusYellow" type="number" step="0.5" value="${reg.scoring.bonuses.yellow}"></label></div></div>
+      <div class="fa2-reg-section"><b>Modificatori</b><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegDFactor" type="checkbox" ${reg.modifiers.dFactor.enabled?"checked":""}><span>D Factor</span></label><label class="fa2-check"><input id="fa2RegDFactorGk" type="checkbox" ${reg.modifiers.dFactor.includeGoalkeeper?"checked":""}><span>D Factor include POR</span></label><label class="fa2-check"><input id="fa2RegFair" type="checkbox" ${reg.modifiers.fairplay.enabled?"checked":""}><span>Fairplay</span></label><label class="fa2-check"><input id="fa2RegCaptain" type="checkbox" ${reg.modifiers.captain.enabled?"checked":""}><span>Capitano</span></label></div></div>
+      <div class="fa2-reg-actions"><button id="fa2RegReset" class="ghost" type="button">Ripristina preset</button><button id="fa2RegSave" class="primary" type="button">SALVA REGOLAMENTO</button></div>
+    </details><button id="fa2OpenStrategy" class="ghost fa2-open-strategy" type="button">Apri Strategy Lab</button></div>`;
+}
+function fa2ReadNumber(id,fallback=0){const el=$(id);const n=Number(el?.value);return Number.isFinite(n)?n:fallback}
+function fa2BindRegulationSettings(){
+  if(!window.FA2Regulation||!$("#fa2RegSave"))return;
+  $("#fa2OpenStrategy").onclick=()=>switchView("strategyView");
+  $("#fa2RegReset").onclick=()=>{if(confirm("Ripristinare il preset 'La mia lega'?")){FA2Regulation.reset();sessionStorage.removeItem("fa2_strategy_result");renderSettings()}};
+  $("#fa2RegSave").onclick=()=>{
+    const old=FA2Regulation.load(),reg=FA2Regulation.load();
+    reg.availability=$("#fa2RegAvailability").value;reg.gameMode=$("#fa2RegMode").value;reg.switchMode=$("#fa2RegSwitch").value;
+    reg.budget.initial=fa2ReadNumber("#fa2RegBudget",old.budget.initial);reg.roster.total=fa2ReadNumber("#fa2RegRoster",old.roster.total);reg.roster.goalkeepers=fa2ReadNumber("#fa2RegGk",old.roster.goalkeepers);reg.roster.clubLimit=fa2ReadNumber("#fa2RegClub",old.roster.clubLimit);
+    reg.bench.size=fa2ReadNumber("#fa2RegBench",old.bench.size);reg.bench.minGoalkeepers=fa2ReadNumber("#fa2RegBenchGk",old.bench.minGoalkeepers);reg.formation.timeoutMinutes=fa2ReadNumber("#fa2RegTimeout",old.formation.timeoutMinutes);reg.formation.hidden=$("#fa2RegHidden").checked;reg.scoring.bookedNoVote=$("#fa2RegBookedSV").checked;
+    ["u23","u21"].forEach(id=>{let r=(reg.underRules||[]).find(x=>x.id===id);if(!r){r={id,label:id.toUpperCase()};reg.underRules.push(r)}r.enabled=$("#fa2_"+id+"_enabled").checked;r.min=fa2ReadNumber("#fa2_"+id+"_min",0);r.birthYearFrom=fa2ReadNumber("#fa2_"+id+"_year",id==="u21"?2005:2003)});
+    reg.scoring.bonuses.goal=fa2ReadNumber("#fa2BonusGoal",old.scoring.bonuses.goal);reg.scoring.bonuses.assistStandard=fa2ReadNumber("#fa2BonusAssist",old.scoring.bonuses.assistStandard);reg.scoring.bonuses.cleanSheet=fa2ReadNumber("#fa2BonusClean",old.scoring.bonuses.cleanSheet);reg.scoring.bonuses.yellow=fa2ReadNumber("#fa2BonusYellow",old.scoring.bonuses.yellow);
+    reg.modifiers.dFactor.enabled=$("#fa2RegDFactor").checked;reg.modifiers.dFactor.includeGoalkeeper=$("#fa2RegDFactorGk").checked;reg.modifiers.fairplay.enabled=$("#fa2RegFair").checked;reg.modifiers.captain.enabled=$("#fa2RegCaptain").checked;
+    const structural=old.budget.initial!==reg.budget.initial||old.roster.total!==reg.roster.total||old.roster.goalkeepers!==reg.roster.goalkeepers||old.availability!==reg.availability;
+    if(structural&&currentAssignmentCount()>0&&!confirm("L'asta contiene già assegnazioni. Salvare comunque le nuove regole? I dati esistenti non verranno cancellati."))return;
+    FA2Regulation.save(reg);sessionStorage.removeItem("fa2_strategy_result");renderSettings();
+  };
+}
+
 function renderSettings(){
   $("#settingsView").innerHTML=`<div class="section-title"><h2>Impostazioni</h2></div>
+    ${fa2RegulationCard()}
     <div class="card safety-settings-card ${state.protectedMode?"protected":""}">
       <div class="safety-settings-head"><span>${state.protectedMode?"LOCK":"OPEN"}</span><div><h3>Modalità Asta protetta</h3><p>${state.protectedMode?"Reset, import backup ed eliminazione lega sono bloccati.":"Attivala prima dell'asta per evitare operazioni distruttive accidentali."}</p></div></div>
       <button id="toggleProtectionBtn" class="${state.protectedMode?"dangerbtn":"primary"}">${state.protectedMode?"Disattiva protezione":"Attiva protezione"}</button>
@@ -3072,6 +3116,7 @@ function renderSettings(){
     <div class="card" style="margin-top:10px"><h3>Report</h3><button id="finalReportBtn" class="ghost">Apri report asta</button></div>
     <div class="card" style="margin-top:10px"><h3>Reset</h3><button id="resetBtn" class="dangerbtn" ${state.protectedMode?"disabled":""}>${state.protectedMode?"Reset bloccato":"Azzera tutta l'asta"}</button></div>
     <div class="card install-note" style="margin-top:10px"><b>Installazione su iPhone</b><br>Apri il sito in Safari → Condividi → Aggiungi alla schermata Home → attiva “Apri come app” se disponibile.</div>`;
+  fa2BindRegulationSettings();
   $("#toggleProtectionBtn").onclick=toggleProtectedMode;
   $("#openSafetyCenterBtn").onclick=openSafetyCenter;
   $("#manualSnapshotBtn").onclick=()=>{createSafetySnapshot("Snapshot manuale");renderSettings()};
@@ -3164,42 +3209,54 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();
 setInterval(()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=1.45.2").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.2").catch(()=>{}));
 
 /* =========================================================
-   FantaAsta2.0 alpha 1 — Strategy Lab
-   Primo motore parallelo: non sostituisce ancora A/B in Asta Live.
+   FantaAsta2.0 alpha 2 — Regulation + Strategy Intelligence
+   Il nuovo motore resta parallelo all'A/B legacy durante l'alpha.
    ========================================================= */
 function fa2StrategyModuleOptions(selected){
   return (window.FA2Strategy?.MODULES||[]).map(m=>`<option value="${m.id}" ${m.id===selected?"selected":""}>${m.name}</option>`).join("");
 }
+function fa2StrategyContext(reg){
+  return {
+    isAssigned:p=>reg?.availability==="multiple"?!!state.purchases?.[p.id]:playerIsRosterAssigned(p),
+    isEligible:p=>isMarketEligiblePlayer(p),
+    starterProbability:p=>starterProbability(p),
+    playerQuality:p=>playerQuality(p),
+    isUnder:(p,rule)=>{const y=playerBirthYear(p);return y>0&&Number(rule?.birthYearFrom)>0?y>=Number(rule.birthYearFrom):(rule?.id==="u21"?isU21Player(p):rule?.id==="u23"?isU23Player(p):false)}
+  };
+}
+function fa2MetricClass(value,invert=false){const v=Number(value)||0;const good=invert?v<=24:v>=72,bad=invert?v>=40:v<55;return good?"good":bad?"bad":""}
+function fa2RenderExplanation(p){
+  const ex=p?.explanation||{};
+  return `<div class="fa2-explain"><div class="fa2-strength"><b>PERCHÉ FUNZIONA</b>${(ex.strengths||[]).map(x=>`<span>✓ ${esc(x)}</span>`).join("")}</div><div class="fa2-warning"><b>COSA PROTEGGERE IN ASTA</b>${(ex.warnings||[]).map(x=>`<span>⚠ ${esc(x)}</span>`).join("")}</div>${ex.priority?.length?`<div class="fa2-priority"><b>PRIORITÀ:</b> ${ex.priority.map(esc).join(" → ")}</div>`:""}</div>`;
+}
 function fa2RenderStrategyResult(result){
   if(!result)return `<div class="fa2-result"><div class="card"><b>Nessuna strategia generata</b><p class="muted">Scegli il metodo e premi CREA STRATEGIA.</p></div></div>`;
-  const p=result.primary;
-  const kpis=`<div class="fa2-kpis"><div><span>COPERTURA</span><b>${p.coverage}%</b></div><div><span>QUALITÀ</span><b>${p.quality}</b></div><div><span>FLESSIBILITÀ</span><b>${p.flexibility}%</b></div><div><span>RISCHIO SCARSITÀ</span><b>${p.scarcityRisk}%</b></div></div>`;
+  const p=result.primary,headlineScore=result.mode==="mono"?p.score:(result.pairScore||p.score);
+  const kpis=`<div class="fa2-kpis alpha2"><div class="${fa2MetricClass(p.quality)}"><span>QUALITÀ XI</span><b>${p.quality}</b></div><div class="${fa2MetricClass(p.starter)}"><span>TITOLARITÀ</span><b>${p.starter}%</b></div><div class="${fa2MetricClass(p.depth)}"><span>PROFONDITÀ</span><b>${p.depth}</b></div><div class="${fa2MetricClass(p.cost)}"><span>COSTO</span><b>${p.cost}</b></div><div class="${fa2MetricClass(p.flexibility)}"><span>FLESSIBILITÀ</span><b>${p.flexibility}</b></div><div class="${fa2MetricClass(p.scarcityRisk,true)}"><span>SCARSITÀ</span><b>${p.scarcityRisk}</b></div><div class="${fa2MetricClass(p.regulation)}"><span>REGOLAMENTO</span><b>${p.regulation}</b></div></div>`;
   const budget=`<div class="fa2-budget">${Object.entries(result.budget||{}).map(([k,v])=>`<div><span>${k}</span><b>${v.credits}</b><small>${v.pct}% budget</small></div>`).join("")}</div>`;
-  const critical=`<div class="fa2-critical"><b>SLOT PIÙ DELICATI SUL LISTONE</b><div>${(p.critical||[]).map(x=>`<span>${x.roles.join("/")} · ${x.row.count} profili</span>`).join("")}</div></div>`;
-  const secondary=result.secondary?`<div class="fa2-bridge"><b>Secondo modulo:</b> ${result.secondary.module.name} · indice ${result.secondary.score}/100${result.bridges?.length?`<br><b>Ruoli ponte:</b> ${result.bridges.slice(0,7).map(x=>x.role).join(" · ")}`:""}</div>`:"";
-  const ranking=result.mode==="auto"?`<div class="fa2-ranking"><b>Classifica moduli dal Listone</b>${result.ranked.slice(0,6).map((x,i)=>`<div class="fa2-ranking-row"><i>${i+1}</i><b>${x.module.name}</b><span>${x.score}</span></div>`).join("")}</div>`:"";
-  return `<div class="fa2-result"><div class="fa2-result-head"><div><span>${result.mode==="auto"?"AUTO · MODULO CONSIGLIATO":result.mode==="dual"?"STRATEGIA DOPPIO MODULO":"STRATEGIA MONO MODULO"}</span><b>${p.module.name}${result.secondary?` + ${result.secondary.module.name}`:""}</b></div><b class="fa2-score">${p.score}<small>/100</small></b></div>${kpis}${budget}${critical}${secondary}${ranking}</div>`;
+  const critical=`<div class="fa2-critical"><b>SLOT DA PROTEGGERE</b><div>${(p.critical||[]).map(x=>`<span>${x.roles.join("/")} · rischio ${x.scarcity}% · ${x.strongCount} forti</span>`).join("")}</div></div>`;
+  const secondary=result.secondary?`<div class="fa2-bridge"><b>Secondo modulo:</b> ${result.secondary.module.name} · ${result.secondary.score}/100 · sinergia ${result.synergy||0}%${result.bridges?.length?`<br><b>Ruoli ponte:</b> ${result.bridges.slice(0,7).map(x=>x.role).join(" · ")}`:""}</div>`:"";
+  const ranking=result.mode==="auto"?`<div class="fa2-ranking"><b>Classifica moduli dal Listone</b>${result.ranked.slice(0,8).map((x,i)=>`<div class="fa2-ranking-row alpha2"><i>${i+1}</i><div><b>${x.module.name}</b><small>Tit ${x.starter}% · Scar ${x.scarcityRisk} · Prof ${x.depth}</small></div><span>${x.score}</span></div>`).join("")}</div>`:"";
+  return `<div class="fa2-result"><div class="fa2-result-head"><div><span>${result.mode==="auto"?"AUTO · COPPIA CONSIGLIATA":result.mode==="dual"?"STRATEGIA DOPPIO MODULO":"STRATEGIA MONO MODULO"}</span><b>${p.module.name}${result.secondary?` + ${result.secondary.module.name}`:""}</b>${result.secondary?`<small>sinergia ${result.synergy||0}%</small>`:""}</div><b class="fa2-score">${headlineScore}<small>/100</small></b></div>${kpis}${fa2RenderExplanation(p)}${budget}${critical}${secondary}${ranking}</div>`;
 }
 function renderStrategyView(){
   const root=$("#strategyView");if(!root)return;
   if(!window.FA2Strategy||!window.FA2Regulation){root.innerHTML='<div class="card">Motori FantaAsta2.0 non caricati.</div>';return;}
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result")||"null")}catch{}
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY LAB</span><h2>Strategia</h2><p>Il regolamento definisce i vincoli. Qui decidiamo come costruire la rosa: un modulo, due moduli oppure analisi automatica del Listone.</p></div>
-    <div class="fa2-reg-strip"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY INTELLIGENCE α2</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
+    <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
-    <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button></div>
+    <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button><button id="fa2EditReg" class="ghost fa2-edit-reg" type="button">Modifica regolamento</button></div>
     <div id="fa2StrategyResult">${fa2RenderStrategyResult(cached)}</div>`;
   $$("[data-fa2-mode]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),mode:btn.dataset.fa2Mode});sessionStorage.removeItem("fa2_strategy_result");renderStrategyView()});
   $("#fa2Primary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),primary:e.target.value});
   $("#fa2Secondary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});
-  $("#fa2Generate").onclick=()=>{
-    const current=FA2Strategy.loadProfile();
-    const result=FA2Strategy.build(current,allPlayers,reg,{isAssigned:playerIsRosterAssigned});
-    sessionStorage.setItem("fa2_strategy_result",JSON.stringify(result));
-    renderStrategyView();
-  };
+  $("#fa2EditReg").onclick=()=>switchView("settingsView");
+  $("#fa2Generate").onclick=()=>{const current=FA2Strategy.loadProfile(),result=FA2Strategy.build(current,allPlayers,reg,fa2StrategyContext(reg));sessionStorage.setItem("fa2_strategy_result",JSON.stringify(result));renderStrategyView()};
 }
+window.addEventListener("fa2:regulation-changed",()=>{sessionStorage.removeItem("fa2_strategy_result");if(state.view==="strategyView")renderStrategyView()});
+

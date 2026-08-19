@@ -1,8 +1,11 @@
-/* FantaAsta2.0 — Regulation Engine alpha 1
-   Unica sorgente di verità per le regole della lega. */
+/* FantaAsta2.0 — Regulation Engine alpha 2
+   Sorgente unica delle regole usate dal nuovo Strategy Engine.
+   Migra automaticamente il profilo alpha 1. */
 (function(){
-  const STORAGE_KEY="fa2_regulation_v1";
-  const SCHEMA=1;
+  const STORAGE_KEY="fa2_regulation_v2";
+  const LEGACY_KEY="fa2_regulation_v1";
+  const SCHEMA=2;
+  const clone=v=>JSON.parse(JSON.stringify(v));
 
   const CURRENT_PRESET={
     schema:SCHEMA,
@@ -40,30 +43,59 @@
     auction:{phases:["POR","DIF","CEN","ATT"],singleAvailability:true}
   };
 
-  const clone=v=>JSON.parse(JSON.stringify(v));
   function mergeDeep(base,patch){
     if(Array.isArray(base))return Array.isArray(patch)?clone(patch):clone(base);
     if(!base||typeof base!=="object")return patch===undefined?base:patch;
     const out={...base};
     if(patch&&typeof patch==="object")Object.keys(patch).forEach(k=>{
-      out[k]=(base[k]&&typeof base[k]==="object"&&!Array.isArray(base[k]))?mergeDeep(base[k],patch[k]):clone(patch[k]);
+      const bv=base[k],pv=patch[k];
+      out[k]=(bv&&typeof bv==="object"&&!Array.isArray(bv)&&pv&&typeof pv==="object"&&!Array.isArray(pv))?mergeDeep(bv,pv):clone(pv);
     });
     return out;
   }
+  const num=(v,d=0,min=-Infinity,max=Infinity)=>Math.min(max,Math.max(min,Number.isFinite(Number(v))?Number(v):d));
   function normalize(raw){
     const r=mergeDeep(CURRENT_PRESET,raw||{});
     r.schema=SCHEMA;
-    r.budget.initial=Math.max(1,Number(r.budget.initial)||2500);
-    r.roster.total=Math.max(1,Number(r.roster.total)||25);
-    r.roster.goalkeepers=Math.max(1,Number(r.roster.goalkeepers)||3);
+    r.availability=r.availability==="multiple"?"multiple":"single";
+    r.gameMode=r.gameMode==="classic"?"classic":"mantra";
+    r.switchMode=["off","switch","plus"].includes(r.switchMode)?r.switchMode:"plus";
+    r.budget.initial=num(r.budget.initial,2500,1,100000);
+    r.budget.minBid=num(r.budget.minBid,1,1,1000);
+    r.budget.minResidualPerSlot=num(r.budget.minResidualPerSlot,1,0,1000);
+    r.roster.total=Math.round(num(r.roster.total,25,1,100));
+    r.roster.goalkeepers=Math.round(num(r.roster.goalkeepers,3,1,r.roster.total));
     r.roster.movement=Math.max(0,r.roster.total-r.roster.goalkeepers);
-    r.roster.clubLimit=Math.max(0,Number(r.roster.clubLimit)||0);
-    r.underRules=(r.underRules||[]).map(x=>({...x,min:Math.max(0,Number(x.min)||0),enabled:x.enabled!==false}));
+    r.roster.clubLimit=Math.round(num(r.roster.clubLimit,5,0,99));
+    r.underRules=(r.underRules||[]).map(x=>({
+      ...x,
+      id:String(x.id||"under"),label:String(x.label||"UNDER"),enabled:x.enabled!==false,
+      maxAge:Math.round(num(x.maxAge,23,16,30)),birthYearFrom:Math.round(num(x.birthYearFrom,2003,1900,2100)),min:Math.round(num(x.min,0,0,r.roster.total))
+    }));
+    r.bench.size=Math.round(num(r.bench.size,12,0,50));
+    r.bench.minGoalkeepers=Math.round(num(r.bench.minGoalkeepers,1,0,10));
+    r.formation.timeoutMinutes=Math.round(num(r.formation.timeoutMinutes,5,0,120));
+    r.formation.hidden=!!r.formation.hidden;
+    r.scoring.goalThreshold.firstGoal=num(r.scoring.goalThreshold.firstGoal,66,0,200);
+    r.scoring.goalThreshold.step=num(r.scoring.goalThreshold.step,6,.5,50);
+    r.scoring.bookedNoVote=!!r.scoring.bookedNoVote;
+    r.modifiers.dFactor.enabled=!!r.modifiers.dFactor.enabled;
+    r.modifiers.dFactor.includeGoalkeeper=!!r.modifiers.dFactor.includeGoalkeeper;
+    r.modifiers.performance.enabled=!!r.modifiers.performance.enabled;
+    r.modifiers.fairplay.enabled=!!r.modifiers.fairplay.enabled;
+    r.modifiers.fairplay.bonus=num(r.modifiers.fairplay.bonus,.5,-10,10);
+    r.modifiers.captain.enabled=!!r.modifiers.captain.enabled;
+    r.auction.singleAvailability=r.availability==="single";
     return r;
   }
-  function load(){
-    try{return normalize(JSON.parse(localStorage.getItem(STORAGE_KEY)||"null"))}catch{return clone(CURRENT_PRESET)}
+  function rawStored(){
+    let raw=null;
+    try{raw=JSON.parse(localStorage.getItem(STORAGE_KEY)||"null")}catch{}
+    if(raw)return raw;
+    try{raw=JSON.parse(localStorage.getItem(LEGACY_KEY)||"null")}catch{}
+    return raw;
   }
+  function load(){return normalize(rawStored()||CURRENT_PRESET)}
   function save(reg){
     const normalized=normalize(reg);
     localStorage.setItem(STORAGE_KEY,JSON.stringify(normalized));
@@ -72,6 +104,7 @@
   }
   function reset(){localStorage.removeItem(STORAGE_KEY);return save(CURRENT_PRESET)}
   function enabledUnder(reg=load()){return (reg.underRules||[]).filter(x=>x.enabled&&x.min>0)}
+  function underRule(reg,id){return (reg?.underRules||[]).find(x=>x.id===id)||null}
   function summary(reg=load()){
     return {
       budget:reg.budget.initial,
@@ -80,8 +113,9 @@
       mode:String(reg.gameMode||"").toUpperCase(),
       under:enabledUnder(reg).map(x=>`${x.label} ${x.min}`).join(" · ")||"Nessun vincolo",
       clubLimit:reg.roster.clubLimit||"—",
-      switchMode:reg.switchMode
+      switchMode:reg.switchMode,
+      modifiers:[reg.modifiers.dFactor.enabled?"D Factor":null,reg.modifiers.fairplay.enabled?"Fairplay":null,reg.modifiers.captain.enabled?"Capitano":null].filter(Boolean).join(" · ")||"Nessuno"
     };
   }
-  window.FA2Regulation={SCHEMA,STORAGE_KEY,CURRENT_PRESET:clone(CURRENT_PRESET),load,save,reset,normalize,enabledUnder,summary};
+  window.FA2Regulation={SCHEMA,STORAGE_KEY,LEGACY_KEY,CURRENT_PRESET:clone(CURRENT_PRESET),load,save,reset,normalize,enabledUnder,underRule,summary};
 })();
