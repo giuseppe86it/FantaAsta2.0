@@ -3119,6 +3119,7 @@ function switchView(id){
   if(id==="dashboardView")renderDashboard();
   if(id==="playersView")renderPlayers();
   if(id==="squadView")renderSquad();
+  if(id==="strategyView")renderStrategyView();
   if(id==="leagueView")renderLeagues();
   if(id==="formationsView")renderFormationsView();
   if(id==="settingsView")renderSettings();
@@ -3129,6 +3130,7 @@ $("#settingsBtn").onclick=()=>switchView("settingsView");
 $("#backupAlertBtn").onclick=openBackupReminder;
 function refresh(){
   renderDashboard();renderPlayers();renderSquad();renderLeagues();renderFormationsView();
+  if(state.view==="strategyView")renderStrategyView();
   if(state.view==="settingsView")renderSettings();
   updateBackupAlert();
 }
@@ -3163,3 +3165,41 @@ ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();
 setInterval(()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},{passive:true});
 if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=1.45.2").catch(()=>{}));
+
+/* =========================================================
+   FantaAsta2.0 alpha 1 — Strategy Lab
+   Primo motore parallelo: non sostituisce ancora A/B in Asta Live.
+   ========================================================= */
+function fa2StrategyModuleOptions(selected){
+  return (window.FA2Strategy?.MODULES||[]).map(m=>`<option value="${m.id}" ${m.id===selected?"selected":""}>${m.name}</option>`).join("");
+}
+function fa2RenderStrategyResult(result){
+  if(!result)return `<div class="fa2-result"><div class="card"><b>Nessuna strategia generata</b><p class="muted">Scegli il metodo e premi CREA STRATEGIA.</p></div></div>`;
+  const p=result.primary;
+  const kpis=`<div class="fa2-kpis"><div><span>COPERTURA</span><b>${p.coverage}%</b></div><div><span>QUALITÀ</span><b>${p.quality}</b></div><div><span>FLESSIBILITÀ</span><b>${p.flexibility}%</b></div><div><span>RISCHIO SCARSITÀ</span><b>${p.scarcityRisk}%</b></div></div>`;
+  const budget=`<div class="fa2-budget">${Object.entries(result.budget||{}).map(([k,v])=>`<div><span>${k}</span><b>${v.credits}</b><small>${v.pct}% budget</small></div>`).join("")}</div>`;
+  const critical=`<div class="fa2-critical"><b>SLOT PIÙ DELICATI SUL LISTONE</b><div>${(p.critical||[]).map(x=>`<span>${x.roles.join("/")} · ${x.row.count} profili</span>`).join("")}</div></div>`;
+  const secondary=result.secondary?`<div class="fa2-bridge"><b>Secondo modulo:</b> ${result.secondary.module.name} · indice ${result.secondary.score}/100${result.bridges?.length?`<br><b>Ruoli ponte:</b> ${result.bridges.slice(0,7).map(x=>x.role).join(" · ")}`:""}</div>`:"";
+  const ranking=result.mode==="auto"?`<div class="fa2-ranking"><b>Classifica moduli dal Listone</b>${result.ranked.slice(0,6).map((x,i)=>`<div class="fa2-ranking-row"><i>${i+1}</i><b>${x.module.name}</b><span>${x.score}</span></div>`).join("")}</div>`:"";
+  return `<div class="fa2-result"><div class="fa2-result-head"><div><span>${result.mode==="auto"?"AUTO · MODULO CONSIGLIATO":result.mode==="dual"?"STRATEGIA DOPPIO MODULO":"STRATEGIA MONO MODULO"}</span><b>${p.module.name}${result.secondary?` + ${result.secondary.module.name}`:""}</b></div><b class="fa2-score">${p.score}<small>/100</small></b></div>${kpis}${budget}${critical}${secondary}${ranking}</div>`;
+}
+function renderStrategyView(){
+  const root=$("#strategyView");if(!root)return;
+  if(!window.FA2Strategy||!window.FA2Regulation){root.innerHTML='<div class="card">Motori FantaAsta2.0 non caricati.</div>';return;}
+  const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
+  let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result")||"null")}catch{}
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY LAB</span><h2>Strategia</h2><p>Il regolamento definisce i vincoli. Qui decidiamo come costruire la rosa: un modulo, due moduli oppure analisi automatica del Listone.</p></div>
+    <div class="fa2-reg-strip"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div></div>
+    <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
+    <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button></div>
+    <div id="fa2StrategyResult">${fa2RenderStrategyResult(cached)}</div>`;
+  $$("[data-fa2-mode]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),mode:btn.dataset.fa2Mode});sessionStorage.removeItem("fa2_strategy_result");renderStrategyView()});
+  $("#fa2Primary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),primary:e.target.value});
+  $("#fa2Secondary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});
+  $("#fa2Generate").onclick=()=>{
+    const current=FA2Strategy.loadProfile();
+    const result=FA2Strategy.build(current,allPlayers,reg,{isAssigned:playerIsRosterAssigned});
+    sessionStorage.setItem("fa2_strategy_result",JSON.stringify(result));
+    renderStrategyView();
+  };
+}

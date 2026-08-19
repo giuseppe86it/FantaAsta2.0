@@ -1,0 +1,13 @@
+{
+  "name": "La mia lega",
+  "availability": "single",
+  "gameMode": "mantra",
+  "budget": {"initial": 2500, "minBid": 1, "minResidualPerSlot": 1},
+  "roster": {"total": 25, "goalkeepers": 3, "movement": 22, "clubLimit": 5},
+  "underRules": [
+    {"id":"u23","enabled":true,"maxAge":23,"birthYearFrom":2003,"min":2,"label":"U23"},
+    {"id":"u21","enabled":true,"maxAge":21,"birthYearFrom":2005,"min":1,"label":"U21"}
+  ],
+  "bench": {"size":12,"minGoalkeepers":1,"movement":"variable"},
+  "switchMode":"plus"
+}
