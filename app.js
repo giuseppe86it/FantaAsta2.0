@@ -2541,6 +2541,60 @@ function renderPlayers(){
 function bindPlayers(){
   $$(".player[data-id]").forEach(el=>el.onclick=()=>openPlayer(el.dataset.id));
 }
+function fa2StatValue(v,digits=1){
+  const n=Number(v);
+  if(!Number.isFinite(n))return "—";
+  return n.toLocaleString("it-IT",{minimumFractionDigits:digits,maximumFractionDigits:digits});
+}
+function fa2StatInt(v){const n=Number(v);return Number.isFinite(n)?Math.round(n).toLocaleString("it-IT"):"—"}
+function fa2TrendLabel(v){const n=Number(v)||0;return n>=4?`↑ +${Math.round(n)}`:n<=-4?`↓ ${Math.round(n)}`:"→ stabile"}
+function fa2PlayerIntelligenceHTML(p){
+  const engine=window.FA2PlayerIntelligence;
+  if(!engine)return `<section class="pi-card missing"><div class="pi-head"><div><span>PLAYER INTELLIGENCE</span><b>Motore non caricato</b></div></div></section>`;
+  const data=engine.get(p),status=engine.status();
+  if(!data){
+    return `<section class="pi-card missing"><div class="pi-head"><div><span>PLAYER INTELLIGENCE</span><b>Nessuna statistica associata</b><small>Feed ${esc(status.label)} · ${status.count||0} giocatori indicizzati</small></div><button class="ghost pi-refresh" onclick='refreshPlayerIntelligenceProfile(${idArg(p.id)})'>Aggiorna statistiche</button></div><p>Il giocatore non è ancora stato abbinato al dataset storico. Il Listone e l'asta continuano a funzionare normalmente.</p></section>`;
+  }
+  const latest=data.latest||{},w=data.weighted||{},seasons=Array.isArray(data.seasons)?data.seasons:[];
+  const source=(data.sources||[]).join(" + ")||"FBref";
+  const stats=[
+    ["Minuti",fa2StatInt(latest.minutes)],
+    ["Titolare",fa2StatInt(latest.starts)],
+    ["Gol",fa2StatValue(latest.goals,0)],
+    ["Assist",fa2StatValue(latest.assists,0)],
+    ["xG",fa2StatValue(latest.xg,1)],
+    ["xA",fa2StatValue(latest.xa,1)],
+    ["G+A /90",fa2StatValue(latest.ga90,2)],
+    ["npxG+xA /90",fa2StatValue(latest.npxgXa90,2)],
+    ["Tiri /90",fa2StatValue(latest.shots90,2)],
+    ["Passaggi chiave /90",fa2StatValue(latest.keyPasses90,2)],
+    ["Tkl+Int /90",fa2StatValue(latest.tacklesInterceptions90,2)],
+    ["Cartellini /90",fa2StatValue(latest.cards90,2)]
+  ];
+  if(Number.isFinite(Number(latest.savePct)))stats.push(["Parate %",fa2StatValue(latest.savePct,1)]);
+  if(Number.isFinite(Number(latest.cleanSheetPct)))stats.push(["Clean sheet %",fa2StatValue(latest.cleanSheetPct,1)]);
+  const historyRows=seasons.slice(0,3).map(x=>`<div class="pi-season-row"><b>${esc(x.seasonLabel||x.season||"—")}</b><span>${fa2StatInt(x.minutes)} min</span><span>${fa2StatValue(x.goals,0)} G</span><span>${fa2StatValue(x.assists,0)} A</span><span>${fa2StatValue(x.score,0)}/100</span></div>`).join("");
+  return `<section class="pi-card ${status.className}">
+    <div class="pi-head"><div><span>PLAYER INTELLIGENCE · ${esc(status.label)}</span><b>${Math.round(Number(data.score)||0)}/100 <small>affidabilità ${Math.round(Number(data.reliability)||0)}%</small></b><small>${esc(source)} · aggiornato ${esc(engine.formatAge())}</small></div><button class="ghost pi-refresh" onclick='refreshPlayerIntelligenceProfile(${idArg(p.id)})'>Aggiorna statistiche</button></div>
+    <div class="pi-score-grid"><div><span>STORICO</span><b>${Math.round(Number(data.score)||0)}</b></div><div><span>TREND</span><b>${esc(fa2TrendLabel(data.trend))}</b></div><div><span>STAGIONE</span><b>${esc(latest.seasonLabel||latest.season||"—")}</b></div><div><span>POS. DATI</span><b>${esc(data.positionGroup||"—")}</b></div></div>
+    <div class="pi-stats-grid">${stats.map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
+    <div class="pi-history-summary"><b>MEDIA PESATA ULTIME STAGIONI</b><span>${fa2StatInt(w.minutes)} min eq. · G+A/90 ${fa2StatValue(w.ga90,2)} · npxG+xA/90 ${fa2StatValue(w.npxgXa90,2)} · score ${fa2StatValue(data.score,0)}/100</span></div>
+    ${historyRows?`<div class="pi-seasons"><b>STORICO</b>${historyRows}</div>`:""}
+    <div class="pi-source-note">Fonte storica Alpha 3: ${esc(source)}. Titolarità probabile e Listone restano alimentati dai feed Fantacalcio già presenti.</div>
+  </section>`;
+}
+async function refreshPlayerIntelligenceProfile(id){
+  const btn=document.querySelector(".pi-refresh");if(btn){btn.disabled=true;btn.textContent="Aggiorno…"}
+  const result=await window.FA2PlayerIntelligence?.refresh({manual:true});
+  if(result?.ok){openPlayer(id)}else{if(btn){btn.disabled=false;btn.textContent="Aggiorna statistiche"}alert(`Statistiche non aggiornate: ${result?.error||"feed non disponibile"}`)}
+}
+async function refreshPlayerIntelligenceGlobal(){
+  const result=await window.FA2PlayerIntelligence?.refresh({manual:true});
+  if(result?.ok){sessionStorage.removeItem("fa2_strategy_result_v21");if(state.view==="strategyView")renderStrategyView();return true}
+  alert(`Statistiche non aggiornate: ${result?.error||"feed non disponibile"}`);return false;
+}
+window.refreshPlayerIntelligenceProfile=refreshPlayerIntelligenceProfile;
+window.refreshPlayerIntelligenceGlobal=refreshPlayerIntelligenceGlobal;
 function openPlayer(id){
   const p=getPlayer(id); if(!p)return;
   const b=state.purchases[p.id],sold=isSold(p.id),strategic=!!p.strategic;
@@ -2556,6 +2610,7 @@ function openPlayer(id){
       <div class="card metric"><span>MAX LIVE</span><strong>${fmt(live.live)}</strong></div>
       <div class="card metric"><span>Inflazione</span><strong>${pctLabel(live.inflation,1)}</strong></div>
     </div>
+    ${fa2PlayerIntelligenceHTML(p)}
     <div class="card" style="margin-top:10px">
       <div class="line"><span>Ruoli Mantra</span><b>${p.role}</b></div>
       <div class="line"><span>Fascia</span><b>${p.tier||"—"}</b></div>
@@ -2583,6 +2638,7 @@ function openPlayer(id){
       }
     </div>
   </div>`;
+  $("#playerDialog").dataset.playerId=String(p.id);
   $("#playerDialog").showModal();
 }
 let purchaseId=null;
@@ -3206,10 +3262,10 @@ function lockInit(){
   $("#lock").classList.remove("hidden");$("#disablePinBtn").style.display="none";
   $("#unlockBtn").onclick=()=>{if($("#pinInput").value===state.pin)$("#lock").classList.add("hidden");else $("#lockText").textContent="PIN errato. Riprova."};
 }
-ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();
-setInterval(()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},5*60*1000);
-document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.2.2").catch(()=>{}));
+ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
+setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 2 — Regulation + Strategy Intelligence
@@ -3225,6 +3281,7 @@ function fa2StrategyContext(reg,scope="full"){
     isEligible:p=>isMarketEligiblePlayer(p),
     starterProbability:p=>starterProbability(p),
     playerQuality:p=>playerQuality(p),
+    playerIntelligence:p=>window.FA2PlayerIntelligence?.get(p)||null,
     isUnder:(p,rule)=>{const y=playerBirthYear(p);return y>0&&Number(rule?.birthYearFrom)>0?y>=Number(rule.birthYearFrom):(rule?.id==="u21"?isU21Player(p):rule?.id==="u23"?isU23Player(p):false)}
   };
 }
@@ -3236,7 +3293,7 @@ function fa2RenderExplanation(p){
 function fa2RenderStrategyResult(result){
   if(!result)return `<div class="fa2-result"><div class="card"><b>Nessuna strategia generata</b><p class="muted">Scegli il metodo e premi CREA STRATEGIA.</p></div></div>`;
   const p=result.primary,headlineScore=result.mode==="mono"?p.score:(result.pairScore||p.score);
-  const kpis=`<div class="fa2-kpis alpha2"><div class="${fa2MetricClass(p.quality)}"><span>QUALITÀ XI</span><b>${p.quality}</b></div><div class="${fa2MetricClass(p.starter)}"><span>TITOLARITÀ</span><b>${p.starter}%</b></div><div class="${fa2MetricClass(p.depth)}"><span>PROFONDITÀ</span><b>${p.depth}</b></div><div class="${fa2MetricClass(p.cost)}"><span>COSTO</span><b>${p.cost}</b></div><div class="${fa2MetricClass(p.flexibility)}"><span>FLESSIBILITÀ</span><b>${p.flexibility}</b></div><div class="${fa2MetricClass(p.scarcityRisk,true)}"><span>SCARSITÀ</span><b>${p.scarcityRisk}</b></div><div class="${fa2MetricClass(p.regulation)}"><span>REGOLAMENTO</span><b>${p.regulation}</b></div></div>`;
+  const kpis=`<div class="fa2-kpis alpha3"><div class="${fa2MetricClass(p.quality)}"><span>QUALITÀ XI</span><b>${p.quality}</b></div><div class="${fa2MetricClass(p.starter)}"><span>TITOLARITÀ</span><b>${p.starter}%</b></div><div class="${fa2MetricClass(p.history||0)}"><span>STORICO</span><b>${p.historyCoverage?`${p.history}`:"—"}</b><small>${p.historyCoverage?`${p.historyCoverage}% copertura`:"feed non pronto"}</small></div><div class="${fa2MetricClass(p.depth)}"><span>PROFONDITÀ</span><b>${p.depth}</b></div><div class="${fa2MetricClass(p.cost)}"><span>COSTO</span><b>${p.cost}</b></div><div class="${fa2MetricClass(p.flexibility)}"><span>FLESSIBILITÀ</span><b>${p.flexibility}</b></div><div class="${fa2MetricClass(p.scarcityRisk,true)}"><span>SCARSITÀ</span><b>${p.scarcityRisk}</b></div><div class="${fa2MetricClass(p.regulation)}"><span>REGOLAMENTO</span><b>${p.regulation}</b></div></div>`;
   const budget=`<div class="fa2-budget">${Object.entries(result.budget||{}).map(([k,v])=>`<div><span>${k}</span><b>${v.credits}</b><small>${v.pct}% budget</small></div>`).join("")}</div>`;
   const critical=`<div class="fa2-critical"><b>SLOT DA PROTEGGERE</b><div>${(p.critical||[]).map(x=>`<span>${x.roles.join("/")} · rischio ${x.scarcity}% · ${x.strongCount} forti</span>`).join("")}</div></div>`;
   const secondary=result.secondary?`<div class="fa2-bridge"><b>Secondo modulo:</b> ${result.secondary.module.name} · ${result.secondary.score}/100 · sinergia ${result.synergy||0}%${result.bridges?.length?`<br><b>Ruoli ponte:</b> ${result.bridges.slice(0,7).map(x=>x.role).join(" · ")}`:""}</div>`:"";
@@ -3249,7 +3306,9 @@ function renderStrategyView(){
   if(!window.FA2Strategy||!window.FA2Regulation){root.innerHTML='<div class="card">Motori FantaAsta2.0 non caricati.</div>';return;}
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v21")||"null")}catch{}
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY INTELLIGENCE α2.2</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
+  const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
+    <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
     <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid"><button class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>
@@ -3260,7 +3319,14 @@ function renderStrategyView(){
   $("#fa2Primary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),primary:e.target.value});
   $("#fa2Secondary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});
   $("#fa2EditReg").onclick=()=>switchView("settingsView");
+  $("#fa2RefreshPI").onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent="Aggiorno…";await refreshPlayerIntelligenceGlobal();};
   $("#fa2Generate").onclick=()=>{const current=FA2Strategy.loadProfile(),result=FA2Strategy.build(current,allPlayers,reg,fa2StrategyContext(reg,current.scope));sessionStorage.setItem("fa2_strategy_result_v21",JSON.stringify(result));renderStrategyView()};
 }
 window.addEventListener("fa2:regulation-changed",()=>{sessionStorage.removeItem("fa2_strategy_result_v21");if(state.view==="strategyView")renderStrategyView()});
+window.addEventListener("fa2:player-intelligence-updated",()=>{
+  sessionStorage.removeItem("fa2_strategy_result_v21");
+  const d=$("#playerDialog"),id=d?.dataset?.playerId;
+  if(d?.open&&id)openPlayer(id);
+  if(state.view==="strategyView")renderStrategyView();
+});
 

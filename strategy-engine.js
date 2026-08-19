@@ -1,6 +1,7 @@
-/* FantaAsta2.0 — Strategy Engine alpha 2.2
-   Strategy Score con normalizzazione PER SLOT: qualità, titolarità LIVE,
-   profondità, costo, flessibilità, regolamento e scarsità reale. */
+/* FantaAsta2.0 — Strategy Engine alpha 3
+   Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
+   qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
+   regolamento e scarsità reale. */
 (function(){
   const STORAGE_KEY="fa2_strategy_v2";
   const LEGACY_KEY="fa2_strategy_v1";
@@ -61,7 +62,6 @@
   function playerMetrics(p,env,norm=null){
     const fvm=Math.max(0,Number(p?.fvm)||0),price=basePrice(p,env.ctx),starter=starterProb(p,env.ctx),roles=roleTokens(p);
     // La qualità deve essere relativa ALLO SLOT, non al miglior giocatore assoluto del Listone.
-    // Altrimenti Por/Dc/Dd/Ds risultano artificialmente deboli rispetto agli attaccanti.
     const maxFvm=Math.max(1,Number(norm?.maxFvm)||env.maxFvm);
     const maxPrice=Math.max(1,Number(norm?.maxPrice)||env.maxPrice);
     const fvmScore=clamp(100*Math.sqrt(fvm/maxFvm));
@@ -69,9 +69,17 @@
     const flex=clamp((roles.length-1)*32+(roles.length>=3?8:0));
     const underMatches=env.underRules.filter(r=>playerIsUnder(p,r,env.ctx)).length;
     const youth=env.underRules.length?100*underMatches/env.underRules.length:50;
-    const intelligence=clamp(fvmScore*.44+pricePower*.18+starter*.25+flex*.08+youth*.05);
+    const piRaw=env.ctx?.playerIntelligence?env.ctx.playerIntelligence(p):null;
+    const pi=typeof piRaw==="object"?piRaw:null;
+    const historyScore=clamp(Number(pi?.score||0));
+    const historyReliability=clamp(Number(pi?.reliability||0));
+    const baseIntelligence=clamp(fvmScore*.44+pricePower*.18+starter*.25+flex*.08+youth*.05);
+    // Lo storico pesa fino al 34%, modulato dall'affidabilità/minuti disponibili.
+    // In assenza di feed storico il comportamento resta identico all'alpha 2.2.
+    const historyWeight=historyScore>0?(.16+.18*(historyReliability/100)):0;
+    const intelligence=clamp(baseIntelligence*(1-historyWeight)+historyScore*historyWeight);
     const efficiency=clamp(68+(intelligence-pricePower)*.48);
-    return {intelligence,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
+    return {intelligence,baseIntelligence,historyScore,historyReliability,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
   }
   function slotCandidatePool(roles,env){
     const pool=env.available.filter(p=>compatible(p,roles));
@@ -99,9 +107,11 @@
     return {
       roles:roles.slice(),key:slotKey(roles),demand,count:candidates.length,strongCount:strong.length,
       quality:round(avg(sample.map(x=>x.m.intelligence))),starter:round(avg(sample.map(x=>x.m.starter))),
+      history:round(avg(sample.filter(x=>x.m.historyScore>0).map(x=>x.m.historyScore))),
+      historyCoverage:round(sample.length?sample.filter(x=>x.m.historyScore>0).length/sample.length*100:0),
       depth:round(depth),scarcity:round(scarcity),efficiency:round(avg(sample.map(x=>x.m.efficiency))),
       flexibility:round(avg(sample.map(x=>x.m.flex))),
-      top:candidates.slice(0,3).map(x=>({id:x.p.id,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),starter:round(x.m.starter),price:round(x.m.price)}))
+      top:candidates.slice(0,3).map(x=>({id:x.p.id,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),history:round(x.m.historyScore),starter:round(x.m.starter),price:round(x.m.price)}))
     };
   }
   function analyseSlots(module,env){
@@ -164,6 +174,9 @@
     const coverage=round(selected.length/module.slots.length*100);
     const qualityXI=round(avg(selected.map(x=>x.m.intelligence)));
     const starterXI=round(avg(selected.map(x=>x.m.starter)));
+    const historyRows=selected.filter(x=>x.m.historyScore>0);
+    const history=round(avg(historyRows.map(x=>x.m.historyScore)));
+    const historyCoverage=round(selected.length?historyRows.length/selected.length*100:0);
     const depth=round(avg(slotRows.map(x=>x.depth)));
     const avgScarcity=avg(slotRows.map(x=>x.scarcity)),maxScarcity=Math.max(0,...slotRows.map(x=>x.scarcity));
     const scarcityRisk=round(avgScarcity*.62+maxScarcity*.38);
@@ -171,19 +184,25 @@
     const cost=costScore(selected,reg);
     const regulation=regulationFit(module,selected,env);
     const scarcityHealth=100-scarcityRisk;
-    let score=qualityXI*.25+starterXI*.17+depth*.14+cost.score*.12+flexibility*.10+regulation*.10+scarcityHealth*.12;
+    // Quando Player Intelligence è disponibile, una quota del punteggio modulo premia
+    // la qualità storica del Best XI senza rendere inutili FVM/titolarità/mercato.
+    const historyEffective=historyCoverage?history:qualityXI;
+    const historyWeight=historyCoverage>=55?.10:historyCoverage>=25?.06:0;
+    let score=qualityXI*(.25-historyWeight*.45)+starterXI*.17+depth*.14+cost.score*.12+flexibility*.10+regulation*.10+scarcityHealth*.12+historyEffective*historyWeight;
     score*=coverage/100;
     score=round(clamp(score));
     const uniqueCritical=new Map();
     slotRows.forEach(r=>{const prev=uniqueCritical.get(r.key);if(!prev||r.scarcity>prev.scarcity)uniqueCritical.set(r.key,r)});
     const critical=[...uniqueCritical.values()].sort((a,b)=>b.scarcity-a.scarcity||a.strongCount-b.strongCount).slice(0,4);
-    const explanation=explainModule({module,score,coverage,qualityXI,starterXI,depth,scarcityRisk,flexibility,cost,regulation,critical});
-    return {module,score,coverage,quality:qualityXI,starter:starterXI,depth,flexibility,scarcityRisk,cost:cost.score,xiCost:cost.xiCost,regulation,critical,selected:selected.map(x=>({slot:x.slot,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),starter:round(x.m.starter)})),explanation};
+    const explanation=explainModule({module,score,coverage,qualityXI,starterXI,history,historyCoverage,depth,scarcityRisk,flexibility,cost,regulation,critical});
+    return {module,score,coverage,quality:qualityXI,starter:starterXI,history,historyCoverage,depth,flexibility,scarcityRisk,cost:cost.score,xiCost:cost.xiCost,regulation,critical,selected:selected.map(x=>({slot:x.slot,name:x.p.name,club:x.p.club,role:x.p.role,score:round(x.m.intelligence),history:round(x.m.historyScore),starter:round(x.m.starter)})),explanation};
   }
   function explainModule(x){
     const strengths=[],warnings=[];
     if(x.starter>=72)strengths.push(`XI potenziale molto titolare (${x.starter}%)`);else if(x.starter<58)warnings.push(`Titolarità media da proteggere (${x.starter}%)`);
     if(x.depth>=76)strengths.push(`Buona profondità del mercato (${x.depth}/100)`);else if(x.depth<58)warnings.push(`Alternative poco profonde (${x.depth}/100)`);
+    if(x.historyCoverage>=55&&x.history>=70)strengths.push(`Storico performante sul Best XI (${x.history}/100 · copertura ${x.historyCoverage}%)`);
+    else if(x.historyCoverage>=55&&x.history<55)warnings.push(`Rendimento storico debole sul Best XI (${x.history}/100)`);
     if(x.flexibility>=55)strengths.push(`Flessibilità Mantra alta (${x.flexibility}/100)`);
     if(x.cost.score>=76)strengths.push(`Costo teorico sostenibile (${x.cost.score}/100)`);else if(x.cost.score<55)warnings.push(`Costruzione potenzialmente costosa (${x.cost.score}/100)`);
     if(x.scarcityRisk>=35)warnings.push(`Scarsità significativa (${x.scarcityRisk}/100)`);
