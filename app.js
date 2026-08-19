@@ -3209,7 +3209,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();
 setInterval(()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible")maybeRefreshFormationsLive()},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.2.1").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.2.2").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 2 — Regulation + Strategy Intelligence
@@ -3249,7 +3249,7 @@ function renderStrategyView(){
   if(!window.FA2Strategy||!window.FA2Regulation){root.innerHTML='<div class="card">Motori FantaAsta2.0 non caricati.</div>';return;}
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v21")||"null")}catch{}
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY INTELLIGENCE α2.1</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY INTELLIGENCE α2.2</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
     <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid"><button class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>

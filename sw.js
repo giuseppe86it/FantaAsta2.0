@@ -1,6 +1,6 @@
 const CACHE_PREFIX="fantaasta2-";
-const CACHE="fantaasta2-v2.0.0-alpha.2.1.1";
-const ASSETS=["./","./index.html","./styles.css?v=2.0.0-alpha.2.1","./app.js?v=2.0.0-alpha.2.1","./regulation-engine.js?v=2.0.0-alpha.2.1","./strategy-engine.js?v=2.0.0-alpha.2.1","./players.js?v=1.45.1","./formations.js?v=1.45.1","./market.js?v=1.45.1","./listone-current.json","./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png","./favicon-32.png"];
+const CACHE="fantaasta2-v2.0.0-alpha.2.2.1";
+const ASSETS=["./","./index.html","./styles.css?v=2.0.0-alpha.2.2","./app.js?v=2.0.0-alpha.2.2","./regulation-engine.js?v=2.0.0-alpha.2.2","./strategy-engine.js?v=2.0.0-alpha.2.2","./players.js?v=1.45.1","./formations.js?v=1.45.1","./market.js?v=1.45.1","./listone-current.json","./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png","./favicon-32.png"];
 self.addEventListener("install",event=>{event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(ASSETS)).then(()=>self.skipWaiting()))});
 self.addEventListener("activate",event=>{event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith(CACHE_PREFIX)&&key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim()))});
 self.addEventListener("fetch",event=>{

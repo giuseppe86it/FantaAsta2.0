@@ -1,6 +1,6 @@
-/* FantaAsta2.0 — Strategy Engine alpha 2
-   Strategy Score: qualità, titolarità LIVE, profondità, costo,
-   flessibilità, regolamento e scarsità per slot. */
+/* FantaAsta2.0 — Strategy Engine alpha 2.2
+   Strategy Score con normalizzazione PER SLOT: qualità, titolarità LIVE,
+   profondità, costo, flessibilità, regolamento e scarsità reale. */
 (function(){
   const STORAGE_KEY="fa2_strategy_v2";
   const LEGACY_KEY="fa2_strategy_v1";
@@ -58,10 +58,14 @@
     const underRules=(reg?.underRules||[]).filter(x=>x.enabled&&Number(x.min)>0);
     return {available,maxFvm,maxPrice,underRules,reg,ctx};
   }
-  function playerMetrics(p,env){
+  function playerMetrics(p,env,norm=null){
     const fvm=Math.max(0,Number(p?.fvm)||0),price=basePrice(p,env.ctx),starter=starterProb(p,env.ctx),roles=roleTokens(p);
-    const fvmScore=clamp(100*Math.sqrt(fvm/env.maxFvm));
-    const pricePower=clamp(100*Math.sqrt(price/env.maxPrice));
+    // La qualità deve essere relativa ALLO SLOT, non al miglior giocatore assoluto del Listone.
+    // Altrimenti Por/Dc/Dd/Ds risultano artificialmente deboli rispetto agli attaccanti.
+    const maxFvm=Math.max(1,Number(norm?.maxFvm)||env.maxFvm);
+    const maxPrice=Math.max(1,Number(norm?.maxPrice)||env.maxPrice);
+    const fvmScore=clamp(100*Math.sqrt(fvm/maxFvm));
+    const pricePower=clamp(100*Math.sqrt(price/maxPrice));
     const flex=clamp((roles.length-1)*32+(roles.length>=3?8:0));
     const underMatches=env.underRules.filter(r=>playerIsUnder(p,r,env.ctx)).length;
     const youth=env.underRules.length?100*underMatches/env.underRules.length:50;
@@ -69,14 +73,25 @@
     const efficiency=clamp(68+(intelligence-pricePower)*.48);
     return {intelligence,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
   }
+  function slotCandidatePool(roles,env){
+    const pool=env.available.filter(p=>compatible(p,roles));
+    const maxFvm=Math.max(1,...pool.map(p=>Number(p?.fvm)||0));
+    const maxPrice=Math.max(1,...pool.map(p=>basePrice(p,env.ctx)));
+    return pool.map(p=>({p,m:playerMetrics(p,env,{maxFvm,maxPrice})}))
+      .sort((a,b)=>b.m.intelligence-a.m.intelligence||b.m.starter-a.m.starter||b.m.fvm-a.m.fvm);
+  }
   function slotKey(roles){return roles.slice().sort().join("/")}
   function demandFor(module,roles){const key=slotKey(roles);return module.slots.filter(x=>slotKey(x)===key).length}
   function slotMarket(module,roles,env){
     const demand=Math.max(1,demandFor(module,roles));
-    const candidates=env.available.filter(p=>compatible(p,roles)).map(p=>({p,m:playerMetrics(p,env)})).sort((a,b)=>b.m.intelligence-a.m.intelligence||b.m.starter-a.m.starter);
+    const candidates=slotCandidatePool(roles,env);
     const sample=candidates.slice(0,Math.max(8,demand*7));
-    const strong=candidates.filter(x=>x.m.intelligence>=52&&x.m.starter>=38);
-    const effectiveSupply=candidates.slice(0,30).reduce((s,x)=>s+clamp((x.m.intelligence-28)/58,0,1)*(0.55+x.m.starter/220),0);
+    // "Forte" è relativo al mercato dello specifico slot.
+    // Soglia dinamica: evita sia 0 Por forti sia decine di falsi top in slot profondi.
+    const topScore=candidates[0]?.m.intelligence||0;
+    const strongThreshold=Math.max(56,topScore*.72);
+    const strong=candidates.filter(x=>x.m.intelligence>=strongThreshold&&x.m.starter>=45);
+    const effectiveSupply=candidates.slice(0,30).reduce((s,x)=>s+clamp((x.m.intelligence-34)/54,0,1)*(0.55+x.m.starter/220),0);
     const targetSupply=demand*7.2;
     let scarcity=clamp((1-Math.min(1,effectiveSupply/targetSupply))*100);
     if(candidates.length<demand*6)scarcity=Math.max(scarcity,clamp((1-candidates.length/(demand*6))*100));
@@ -101,7 +116,7 @@
     const slots=module.slots.map((roles,i)=>({i,roles,row:slotRows[i]})).sort((a,b)=>b.row.scarcity-a.row.scarcity||a.row.count-b.row.count);
     const used=new Set(),selected=[];
     for(const s of slots){
-      const pool=env.available.filter(p=>!used.has(String(p.id))&&compatible(p,s.roles)).map(p=>({p,m:playerMetrics(p,env)})).sort((a,b)=>b.m.intelligence-a.m.intelligence);
+      const pool=slotCandidatePool(s.roles,env).filter(x=>!used.has(String(x.p.id)));
       const pick=pool[0];
       if(pick){used.add(String(pick.p.id));selected.push({slot:s.i,roles:s.roles,p:pick.p,m:pick.m})}
     }
