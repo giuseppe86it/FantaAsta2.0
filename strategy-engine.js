@@ -17,7 +17,7 @@
     {id:"4411",name:"4-4-1-1",slots:[["Por"],["Dd"],["Dc"],["Dc"],["Ds"],["M"],["C"],["E","W"],["E","W"],["T","A"],["A","Pc"]]},
     {id:"4231",name:"4-2-3-1",slots:[["Por"],["Dd"],["Dc"],["Dc"],["Ds"],["M"],["M","C"],["W","T"],["T"],["W","A"],["A","Pc"]]}
   ];
-  const DEFAULT_PROFILE={schema:2,mode:"mono",primary:"433",secondary:"4231",autoTopN:2,lastGeneratedAt:0};
+  const DEFAULT_PROFILE={schema:2,mode:"mono",scope:"full",primary:"433",secondary:"4231",autoTopN:2,lastGeneratedAt:0};
   const ROLE_MACRO={Por:"POR",Dd:"DIF",Ds:"DIF",Dc:"DIF",B:"DIF",E:"CEN",M:"CEN",C:"CEN",W:"ATT",T:"ATT",A:"ATT",Pc:"ATT"};
   const D_FACTOR_ROLES=new Set(["Dc","B","Dd","Ds","E","M"]);
   const clone=v=>JSON.parse(JSON.stringify(v));

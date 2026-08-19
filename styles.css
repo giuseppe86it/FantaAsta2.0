@@ -3088,3 +3088,7 @@ body{
 .fa2-ranking-row.alpha2{grid-template-columns:28px minmax(0,1fr) auto}.fa2-ranking-row.alpha2>div{min-width:0}.fa2-ranking-row.alpha2 small{display:block;margin-top:2px;color:#8296aa;font-size:7.5px}.fa2-critical span{line-height:1.25}
 @media(max-width:600px){.fa2-reg-strip.alpha2{grid-template-columns:repeat(3,1fr)}.fa2-reg-mini{grid-template-columns:repeat(2,1fr)}.fa2-kpis.alpha2{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:390px){.fa2-reg-grid{grid-template-columns:1fr 1fr}.fa2-reg-under-row{grid-template-columns:1fr 1fr}.fa2-reg-under-row .fa2-check{grid-column:1/-1}.fa2-reg-toggle-grid{grid-template-columns:1fr}.fa2-explain{grid-template-columns:1fr}.fa2-priority{grid-column:auto}.fa2-reg-strip.alpha2{grid-template-columns:repeat(2,1fr)}}
+
+
+/* FantaAsta2.0 alpha 2.1 — analisi pre-asta/live */
+.fa2-scope-card{margin:8px 0 10px;padding:10px;border:1px solid #29445f;border-radius:14px;background:#0b1829}.fa2-scope-card>span{display:block;color:#8fa4ba;font-size:8px;font-weight:900;letter-spacing:.08em;margin-bottom:7px}.fa2-scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.fa2-scope{border:1px solid #29445f;border-radius:11px;background:#102039;color:#b8c7d6;padding:9px 8px;text-align:left}.fa2-scope b{display:block;font-size:10px}.fa2-scope small{display:block;margin-top:2px;color:#8799ad;font-size:8px}.fa2-scope.active{border-color:#3ad994;background:#123828;color:#67eab2}.fa2-scope.active small{color:#a6d9c2}@media(max-width:390px){.fa2-scope-grid{grid-template-columns:1fr}.fa2-scope{text-align:center}}
