@@ -410,6 +410,7 @@ function captureAuctionCore(){
 }
 function applyAuctionCore(core){
   if(!core)return;
+  const strategyBefore=fa2CaptureStrategySlotStates();
   state.purchases=cloneAuctionData(core.purchases)||{};
   state.sold=cloneAuctionData(core.sold)||{};
   if(STRATEGIES[core.strategy])state.strategy=core.strategy;
@@ -419,7 +420,7 @@ function applyAuctionCore(core){
   save();saveSold();saveLeague();saveAuctionPhase();
   localStorage.setItem("fa2_strategy",state.strategy);
   saveSafetyState();
-  invalidateAuctionIntel();
+  fa2AfterAuctionStateChange("STATE_RESTORED","",strategyBefore);
 }
 function auditOnly(type,label){
   state.operationLog=[...(state.operationLog||[]),{id:`op_${Date.now()}_${Math.random().toString(36).slice(2,7)}`,at:Date.now(),type,label}].slice(-100);
@@ -1325,6 +1326,7 @@ function roleAffinityScore(candidate,lost){
 function dynamicAlternativeScore(candidate,lost,intel=getAuctionIntel(),ctx=null){
   if(!candidate||!lost||String(candidate.id)===String(lost.id))return -Infinity;
   if(!isMarketEligiblePlayer(candidate)||state.purchases[candidate.id]||state.sold[candidate.id])return -Infinity;
+  if(ctx?.managedPlanPlayers?.has(String(candidate.id)))return -Infinity;
   if(playerAuctionPhase(candidate)!==playerAuctionPhase(lost))return -Infinity;
   if(countClub(candidate.club)>=5)return -Infinity;
 
@@ -1367,7 +1369,8 @@ function bestAlternativeForTarget(lost,intel=getAuctionIntel()){
     mine:teamEconomy(mineTeam()),
     guide:phaseBudgetRemaining(playerAuctionPhase(lost)),
     u23Owned:owned.filter(isU23Player).length,
-    u21Owned:owned.filter(isU21Player).length
+    u21Owned:owned.filter(isU21Player).length,
+    managedPlanPlayers:fa2ManagedPlanPlayerIds()
   };
   const rank=pool=>pool
     .map(p=>({p,score:dynamicAlternativeScore(p,lost,intel,ctx)}))
@@ -1386,22 +1389,23 @@ function bestAlternativeForTarget(lost,intel=getAuctionIntel()){
   ].join(" · ");
   return {lost,player:best.p,score:best.score,reason};
 }
-function fa2CoveredPlanOriginalTargetIds(){
-  if(typeof fa2PlanRuntimeSlots!=="function")return new Set();
+function fa2ManagedPlanPlayerIds(){
+  const resolver=window.FA2Strategy?.resolvePlanSlots;
+  if(typeof resolver!=="function")return new Set();
   const ids=new Set();
-  for(const rt of fa2PlanRuntimeSlots()){
-    if(!rt?.covered||!rt?.originalTarget?.id)continue;
-    ids.add(String(rt.originalTarget.id));
+  for(const rt of resolver(fa2LoadPurchasePlan(),fa2PlanCandidateAuctionState)){
+    for(const row of rt?.candidateStates||[]){
+      if(row?.candidate?.id)ids.add(String(row.candidate.id));
+    }
   }
   return ids;
 }
 function dynamicTargetRecommendations(intel=getAuctionIntel()){
-  // A3.5.1: se uno slot del Piano Strategia è già coperto da un nostro
-  // acquisto, il vecchio motore TARGET dinamici non deve continuare a
-  // inseguire il TARGET originale perso (es. Calhanoglu -> Perrone).
-  const coveredOriginalTargets=fa2CoveredPlanOriginalTargetIds();
+  // A3.6: qualunque slot gestito dal Piano Strategia usa la state machine
+  // condivisa. Il motore legacy resta attivo solo per TARGET fuori dal Piano.
+  const managedPlanPlayers=fa2ManagedPlanPlayerIds();
   return lostStaticTargets()
-    .filter(lost=>!coveredOriginalTargets.has(String(lost.id)))
+    .filter(lost=>!managedPlanPlayers.has(String(lost.id)))
     .map(lost=>bestAlternativeForTarget(lost,intel))
     .filter(Boolean)
     .sort((a,b)=>{
@@ -1416,15 +1420,20 @@ function dynamicAlternativeForPlayer(p,intel=getAuctionIntel(),recommendations=n
 }
 function liveTargetBannerHTML(intel=getAuctionIntel()){
   const planRuntime=typeof fa2PlanRuntimeSlots==="function"?fa2PlanRuntimeSlots():[];
-  const promoted=planRuntime.find(x=>!x.covered&&x.promoted&&x.current&&playerAuctionPhase(getPlayer(x.current.id))===state.auctionPhase);
+  const slotStates=window.FA2Strategy?.SLOT_STATES||{};
+  const promoted=planRuntime.find(x=>x.state===slotStates.PROMOTED&&x.current&&playerAuctionPhase(getPlayer(x.current.id))===state.auctionPhase);
   if(promoted){
     return `<div class="live-target-alert urgent plan"><div><span>TARGET PERSO · ${esc(promoted.originalTarget?.name||promoted.key)}</span><b>${kitHTML(getPlayer(promoted.current.id)?.club,'xs',getPlayer(promoted.current.id)?.club)} ${esc(promoted.current.name)}</b><small>Promosso automaticamente · ${esc(promoted.key)} · MAX strategico ${fmt(promoted.currentCap||0)}</small></div><button type="button" onclick='selectLivePlayer(${idArg(promoted.current.id)})'>PARTECIPA</button></div>`;
   }
-  const covered=planRuntime.find(x=>x.covered&&x.coveredBy&&playerAuctionPhase(getPlayer(x.coveredBy.id))===state.auctionPhase&&x.originalTarget&&(state.sold?.[getPlayer(x.originalTarget.id)?.id]||getPlayer(x.originalTarget.id)?.outOfListone));
+  const covered=planRuntime.find(x=>x.state===slotStates.COVERED&&x.coveredBy&&playerAuctionPhase(getPlayer(x.coveredBy.id))===state.auctionPhase);
   if(covered){
     const p=getPlayer(covered.coveredBy.id);
     const paid=Number(state.purchases?.[p?.id]?.price||0);
     return `<div class="live-target-alert plan covered"><div><span>SLOT COPERTO · ${esc(covered.key)}</span><b>${kitHTML(p?.club,'xs',p?.club)} ${esc(covered.coveredBy.name)}</b><small>Acquistato da noi${paid?` a ${fmt(paid)} cr`:""}. Il Piano Strategia non cerca più sostituti per ${esc(covered.originalTarget?.name||covered.key)}.</small></div></div>`;
+  }
+  const exhausted=planRuntime.find(x=>{const p=getPlayer(x.originalTarget?.id);return x.state===slotStates.LOST_EXHAUSTED&&p&&playerAuctionPhase(p)===state.auctionPhase});
+  if(exhausted){
+    return `<div class="live-target-alert urgent"><div><span>SLOT PERSO / ESAURITO · ${esc(exhausted.key)}</span><b>${esc(exhausted.originalTarget?.name||exhausted.key)}</b><small>Nessun candidato salvato è ancora disponibile. Riapri lo slot in Strategia per rianalizzarlo.</small></div></div>`;
   }
   const current=dynamicTargetRecommendations(intel).find(x=>playerAuctionPhase(x.lost)===state.auctionPhase);
   if(!current)return "";
@@ -1539,7 +1548,7 @@ function saveDashboardAssignmentEdit(){
     const econ=teamEconomy(target,p.id);
     if(price>econ.maxNext){alert(`${target.isMine?"La tua squadra":target.name} può spendere al massimo ${econ.maxNext} crediti su questa assegnazione, conservando 1 credito per ogni slot successivo.`);return;}
   }
-  const before=captureAuctionCore();
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
   const oldTeam=current.mine?(current.team?.name||"La mia squadra"):(current.team?.name||"Non assegnato");
   const newTeam=target?.name||"Non assegnato";
   delete state.purchases[p.id];
@@ -1549,7 +1558,7 @@ function saveDashboardAssignmentEdit(){
   }else{
     state.sold[p.id]={price,at:current.at||Date.now(),teamId:teamKey==="__unassigned__"?"":teamKey,leagueId:state.league?.id||""};
   }
-  save();saveSold();invalidateAuctionIntel();
+  save();saveSold();fa2AfterAuctionStateChange("ASSIGNMENT_EDITED",p.id,strategyBefore);
   recordOperation("MODIFICA_ASSEGNAZIONE",`${p.name}: ${oldTeam} → ${newTeam} · ${current.price} → ${price} cr`,before);
   closeSafetyDialog();refresh();
 }
@@ -1558,10 +1567,10 @@ function cancelDashboardAssignment(){
   const current=dashboardAssignmentData(id);if(!current)return;
   if(!protectedPermission("annullare l'assegnazione"))return;
   if(!confirm(`Annullare l'assegnazione di ${current.p.name}?\n\nIl giocatore tornerà disponibile in Asta Live.`))return;
-  const before=captureAuctionCore();
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
   delete state.purchases[current.p.id];
   delete state.sold[current.p.id];
-  save();saveSold();invalidateAuctionIntel();
+  save();saveSold();fa2AfterAuctionStateChange("ASSIGNMENT_REMOVED",current.p.id,strategyBefore);
   recordOperation("ANNULLA_ASSEGNAZIONE",`${current.p.name}: assegnazione annullata`,before);
   closeSafetyDialog();refresh();
 }
@@ -1902,9 +1911,9 @@ function finishAuctionActionNavigation(){
 }
 
 let liveSelectedId=null;
-/* Alpha 3.5 — il Piano Strategia persistente entra in Asta Live.
-   Ogni slot ha un TARGET operativo. Se viene perso, ALT 1 sale a TARGET,
-   le alternative scorrono e i VALUE salvati riforniscono automaticamente ALT 3. */
+/* Alpha 3.6 — Strategia e Asta Live leggono la stessa state machine.
+   Ogni slot ha un unico TARGET operativo; le logiche legacy restano isolate
+   ai soli TARGET che non appartengono a un Piano Strategia salvato. */
 function fa2LivePlanEntries(){
   const map=new Map();
   if(typeof fa2PlanRuntimeSlots!=="function")return map;
@@ -1920,8 +1929,8 @@ function fa2LivePlanEntries(){
   return map;
 }
 function fa2LivePlanEntry(p,map=null){return (map||fa2LivePlanEntries()).get(String(p?.id??""))||null}
-/* v1.44 — Priorità strategica dell'elenco Asta Live.
-   TARGET piano → ALT piano → TARGET legacy → alternative dinamiche → resto. */
+/* Alpha 3.6 — Priorità strategica dell'elenco Asta Live.
+   TARGET piano → ALT piano → TARGET legacy non gestiti → alternative → resto. */
 function liveGeneralOpportunityScore(p,intel=getAuctionIntel(),ctx=null){
   if(!p)return -Infinity;
   const mine=ctx?.mine||teamEconomy(mineTeam());
@@ -1949,6 +1958,7 @@ function liveGeneralOpportunityScore(p,intel=getAuctionIntel(),ctx=null){
 function livePriorityRows(list,intel=getAuctionIntel(),recommendations=null){
   const recs=recommendations||dynamicTargetRecommendations(intel);
   const planMap=fa2LivePlanEntries();
+  const managedPlanPlayers=fa2ManagedPlanPlayerIds();
   const dynamicById=new Map();
   recs.forEach(rec=>{
     const key=String(rec.player.id),prev=dynamicById.get(key);
@@ -1963,23 +1973,25 @@ function livePriorityRows(list,intel=getAuctionIntel(),recommendations=null){
         mine:teamEconomy(mineTeam()),
         guide:phaseBudgetRemaining(phase),
         u23Owned:owned.filter(isU23Player).length,
-        u21Owned:owned.filter(isU21Player).length
+        u21Owned:owned.filter(isU21Player).length,
+        managedPlanPlayers
       });
     }
     return phaseCtx.get(phase);
   };
   const targetsFor=phase=>{
     if(!phaseTargets.has(phase)){
-      phaseTargets.set(phase,staticTargets().filter(t=>playerAuctionPhase(t)===phase&&!state.purchases[t.id]&&!state.sold[t.id]));
+      phaseTargets.set(phase,staticTargets().filter(t=>playerAuctionPhase(t)===phase&&!state.purchases[t.id]&&!state.sold[t.id]&&!managedPlanPlayers.has(String(t.id))));
     }
     return phaseTargets.get(phase);
   };
   const rows=list.map(p=>{
-    const phase=playerAuctionPhase(p),dynamic=dynamicById.get(String(p.id))||null;
-    const staticTarget=isStaticTarget(p),plan=fa2LivePlanEntry(p,planMap);
+    const phase=playerAuctionPhase(p),managedPlanPlayer=managedPlanPlayers.has(String(p.id));
+    const dynamic=managedPlanPlayer?null:dynamicById.get(String(p.id))||null;
+    const legacyStaticTarget=isStaticTarget(p)&&!managedPlanPlayer,plan=fa2LivePlanEntry(p,planMap);
     const ctx=ctxFor(phase);
     let altScore=-Infinity;
-    if(!staticTarget&&!plan){
+    if(!legacyStaticTarget&&!plan&&!managedPlanPlayer){
       for(const target of targetsFor(phase)){
         const score=dynamicAlternativeScore(p,target,intel,ctx);
         if(score>altScore)altScore=score;
@@ -1989,10 +2001,10 @@ function livePriorityRows(list,intel=getAuctionIntel(),recommendations=null){
     let tier=5,score=general;
     if(plan?.kind==="target"){tier=0;score=6000+(plan.promoted?250:500)+Number(plan.candidate?.score||0)}
     else if(plan?.kind==="alt"){tier=1;score=5200-plan.rank*100+Number(plan.candidate?.score||0)}
-    else if(staticTarget){tier=2;score=4000+general}
+    else if(legacyStaticTarget){tier=2;score=4000+general}
     else if(dynamic){tier=3;score=dynamic.score}
     else if(Number.isFinite(altScore)){tier=4;score=altScore}
-    return {p,meta:{tier,score,altScore,general,dynamic,plan,altRank:null}};
+    return {p,meta:{tier,score,altScore,general,dynamic,plan,managedPlanPlayer,legacyStaticTarget,altRank:null}};
   });
   rows.sort((a,b)=>{
     const phaseA=playerAuctionPhase(a.p)===state.auctionPhase?0:1;
@@ -2001,7 +2013,7 @@ function livePriorityRows(list,intel=getAuctionIntel(),recommendations=null){
   });
   const counters={};
   rows.forEach(row=>{
-    if(row.meta.plan||isStaticTarget(row.p))return;
+    if(row.meta.plan||row.meta.managedPlanPlayer||row.meta.legacyStaticTarget)return;
     if(row.meta.tier>4)return;
     const phase=playerAuctionPhase(row.p);
     counters[phase]=(counters[phase]||0)+1;
@@ -2020,8 +2032,10 @@ function liveCandidateList(query="",intel=getAuctionIntel(),recommendations=null
   return livePriorityRows(list,intel,recommendations).slice(0,18);
 }
 function liveResultHTML(p,intel=getAuctionIntel(),recommendations=null,meta=null){
-  const live=liveMaxForPlayer(p,intel),dynamic=dynamicAlternativeForPlayer(p,intel,recommendations);
-  const staticTarget=isStaticTarget(p),plan=meta?.plan||fa2LivePlanEntry(p);
+  const live=liveMaxForPlayer(p,intel),plan=meta?.plan||fa2LivePlanEntry(p);
+  const managedPlanPlayer=meta?.managedPlanPlayer??fa2ManagedPlanPlayerIds().has(String(p?.id));
+  const dynamic=managedPlanPlayer?null:(meta?.dynamic||dynamicAlternativeForPlayer(p,intel,recommendations));
+  const staticTarget=meta?.legacyStaticTarget??(isStaticTarget(p)&&!managedPlanPlayer);
   const planBadge=plan?.kind==="target"
     ? `<em class="live-result-badge plan-target">${plan.promoted?"TARGET ↑":"TARGET"}</em>`
     : plan?.kind==="alt"?`<em class="live-result-badge alternative">ALT ${plan.rank}</em>`:"";
@@ -2043,8 +2057,9 @@ function selectLivePlayer(id){
   liveSelectedId=p.id;
   const intel=getAuctionIntel(),live=liveMaxForPlayer(p,intel),mine=teamEconomy(mineTeam());
   const comp=live.competition.slice(0,5);
-  const dynamic=dynamicAlternativeForPlayer(p,intel);
-  const staticTarget=isStaticTarget(p),plan=fa2LivePlanEntry(p);
+  const plan=fa2LivePlanEntry(p),managedPlanPlayer=fa2ManagedPlanPlayerIds().has(String(p.id));
+  const dynamic=managedPlanPlayer?null:dynamicAlternativeForPlayer(p,intel);
+  const staticTarget=isStaticTarget(p)&&!managedPlanPlayer;
   let targetSignal="";
   if(plan?.kind==="target"){
     const lost=plan.runtime?.originalTarget;
@@ -2739,8 +2754,9 @@ window.editSold=id=>openSoldDialog(id);
 window.restoreSold=id=>{
   const p=getPlayer(id); id=p?p.id:id;
   const previous=state.sold[id];if(!previous)return;
-  const before=captureAuctionCore();
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
   delete state.sold[id];saveSold();
+  fa2AfterAuctionStateChange("PLAYER_RESTORED",id,strategyBefore);
   recordOperation("RIPRISTINA_MERCATO",`${p?.name||"Giocatore"} ripristinato al mercato`,before);
   const d=$("#playerDialog");
   if(d.open) d.close();
@@ -2766,7 +2782,7 @@ $("#soldForm").addEventListener("submit",e=>{
   const price=Number($("#soldPriceInput").value);
   if(!Number.isInteger(price)||price<1)return;
   const previous=state.sold[p.id]||{};
-  const before=captureAuctionCore(),wasEdit=!!previous.price;
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),wasEdit=!!previous.price;
   const teamId=opponentTeams().length?$("#soldTeamSelect").value:"";
   const team=leagueTeamById(teamId);
   if(team){
@@ -2783,6 +2799,7 @@ $("#soldForm").addEventListener("submit",e=>{
     leagueId:state.league?.id||""
   };
   saveSold();
+  fa2AfterAuctionStateChange(wasEdit?"PLAYER_LOST_EDITED":"PLAYER_LOST",p.id,strategyBefore);
   if(!wasEdit)registerBackupRelevantAssignment();
   recordOperation(wasEdit?"MODIFICA_VENDITA":"VENDUTO",wasEdit?`${p.name}: vendita aggiornata a ${price} cr · ${soldTeamName(state.sold[p.id])}`:`${p.name} → ${soldTeamName(state.sold[p.id])} · ${price} cr`,before);
   $("#soldDialog").close();
@@ -2872,12 +2889,13 @@ $("#purchaseForm").addEventListener("submit",e=>{
   const econ=teamEconomy(mineTeam(),purchaseMode==="edit"?purchaseId:null);
   if(price>econ.maxNext){alert(`Puoi spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, conservando 1 credito per ogni slot successivo.`);return;}
   const previous=state.purchases[purchaseId];
-  const before=captureAuctionCore(),wasEdit=purchaseMode==="edit";
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),wasEdit=purchaseMode==="edit";
   state.purchases[purchaseId]={
     price,
     at: wasEdit && previous?.at ? previous.at : Date.now()
   };
   save();
+  fa2AfterAuctionStateChange(wasEdit?"PLAYER_PURCHASE_EDITED":"PLAYER_PURCHASED",purchaseId,strategyBefore);
   if(!wasEdit)registerBackupRelevantAssignment();
   recordOperation(wasEdit?"MODIFICA_ACQUISTO":"ACQUISTO",wasEdit?`${p?.name||"Giocatore"}: ${previous?.price||"—"} → ${price} cr`:`${p?.name||"Giocatore"} acquistato a ${price} cr`,before);
   $("#purchaseDialog").close();
@@ -2887,8 +2905,9 @@ $("#purchaseForm").addEventListener("submit",e=>{
 });
 window.removePurchase=id=>{
   const p=getPlayer(id),previous=state.purchases[id];if(!previous)return;
-  const before=captureAuctionCore();
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
   delete state.purchases[id];save();
+  fa2AfterAuctionStateChange("PLAYER_PURCHASE_REMOVED",id,strategyBefore);
   recordOperation("ANNULLA_ACQUISTO",`${p?.name||"Giocatore"}: acquisto ${previous.price} cr annullato`,before);
   $("#playerDialog").close();refresh();
 }
@@ -3255,7 +3274,7 @@ function renderSettings(){
   $("#resetBtn").onclick=()=>{
     if(blockedByProtection("Azzera tutta l'asta"))return;
     if(confirm("Vuoi davvero cancellare acquisti e giocatori venduti e riportare la fase asta ai POR?")){
-      const before=captureAuctionCore();state.purchases={};state.sold={};state.auctionPhase="POR";save();saveSold();saveAuctionPhase();resetBackupReminderCounters();recordOperation("RESET","Asta azzerata",before);refresh();
+      const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();state.purchases={};state.sold={};state.auctionPhase="POR";save();saveSold();saveAuctionPhase();fa2AfterAuctionStateChange("AUCTION_RESET","",strategyBefore);resetBackupReminderCounters();recordOperation("RESET","Asta azzerata",before);refresh();
     }
   };
   $("#exportBtn").onclick=()=>{
@@ -3271,7 +3290,7 @@ function renderSettings(){
   $("#importFile").onchange=e=>{
     if(blockedByProtection("Importare un backup")){e.target.value="";return;}
     let f=e.target.files[0];if(!f)return;let rd=new FileReader();rd.onload=()=>{try{
-      let o=JSON.parse(rd.result),before=captureAuctionCore();
+      let o=JSON.parse(rd.result),before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
       state.purchases=o.purchases||{};state.sold=o.sold||{};state.league=o.league||state.league||null;
       if(STRATEGIES[o.strategy]){state.strategy=o.strategy;localStorage.setItem("fa2_strategy",o.strategy)}
       if(["strategic","all"].includes(o.poolMode)){state.poolMode=o.poolMode;localStorage.setItem("fa2_pool_mode",o.poolMode)}
@@ -3283,7 +3302,7 @@ function renderSettings(){
       const importedBackupCount=Math.max(Number(o.backupActionCount)||0,Object.keys(state.purchases||{}).length+Object.keys(state.sold||{}).length);
       localStorage.setItem(SAFETY_KEYS.backupActionCount,String(importedBackupCount));
       localStorage.setItem(SAFETY_KEYS.lastBackupActionCount,String(importedBackupCount));
-      save();saveSold();saveLeague();saveSafetyState();invalidateAuctionIntel();recordOperation("IMPORT","Backup importato",before,{undoable:true,count:false});refresh();alert("Backup importato.")
+      save();saveSold();saveLeague();saveSafetyState();fa2AfterAuctionStateChange("BACKUP_IMPORTED","",strategyBefore);recordOperation("IMPORT","Backup importato",before,{undoable:true,count:false});refresh();alert("Backup importato.")
     }catch{alert("File non valido.")}};rd.readAsText(f)
   };
 }
@@ -3337,10 +3356,10 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.5.1").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.6").catch(()=>{}));
 
 /* =========================================================
-   FantaAsta2.0 alpha 3.5.1 — Covered Slot Hotfix
+   FantaAsta2.0 alpha 3.6 — Unified Strategy State
    Il Piano Strategia resta separato dal MAX LIVE: guida l'acquisto
    con un tetto operativo e una conferma esplicita oltre soglia.
    ========================================================= */
@@ -3392,22 +3411,36 @@ function fa2PlanPlayerState(id){
 function fa2CandidateIsAvailable(x){
   const p=getPlayer(x?.id);return !!p&&isMarketEligiblePlayer(p)&&!state.purchases?.[p.id]&&!state.sold?.[p.id]&&!p.outOfListone;
 }
+function fa2PlanCandidateAuctionState(id){
+  const playerStates=window.FA2Strategy?.SLOT_PLAYER_STATES||{};
+  const p=getPlayer(id);
+  if(!p)return playerStates.MISSING||"MISSING";
+  if(state.purchases?.[p.id])return playerStates.OWNED||"OWNED";
+  if(state.sold?.[p.id]||p.outOfListone)return playerStates.LOST||"LOST";
+  if(isMarketEligiblePlayer(p))return playerStates.AVAILABLE||"AVAILABLE";
+  return playerStates.MISSING||"MISSING";
+}
 function fa2PlanRuntimeSlots(){
-  const plan=fa2LoadPurchasePlan(),out=[];
-  Object.entries(plan.slots||{}).forEach(([key,slot])=>{
-    const originalTarget=slot.target||null;
-    const ordered=[originalTarget,...(slot.alternatives||[]),...(slot.values||[])].filter(Boolean);
-    const mine=ordered.find(x=>state.purchases?.[getPlayer(x.id)?.id]);
-    if(mine){out.push({key,slot,covered:true,coveredBy:mine,originalTarget,current:null,currentCap:0,alternatives:[],promoted:false});return}
-    const available=ordered.filter(fa2CandidateIsAvailable);
-    const current=available[0]||null;
-    const promoted=!!current&&!!originalTarget&&String(current.id)!==String(originalTarget.id);
-    const alternatives=available.filter(x=>String(x.id)!==String(current?.id||"")).slice(0,3);
-    const runtime={key,slot,covered:false,coveredBy:null,originalTarget,current,alternatives,promoted,currentCap:0};
-    runtime.currentCap=current?fa2DynamicStrategicCap(slot,current,runtime):0;
-    out.push(runtime);
+  const plan=fa2LoadPurchasePlan(),resolver=window.FA2Strategy?.resolvePlanSlots;
+  if(typeof resolver!=="function")return [];
+  return resolver(plan,fa2PlanCandidateAuctionState).map(runtime=>{
+    runtime.currentCap=runtime.current?fa2DynamicStrategicCap(runtime.slot,runtime.current,runtime):0;
+    return runtime;
   });
-  return out;
+}
+function fa2CaptureStrategySlotStates(){
+  const snapshot={};
+  fa2PlanRuntimeSlots().forEach(rt=>{snapshot[rt.key]={state:rt.state,currentId:String(rt.current?.id||""),coveredById:String(rt.coveredBy?.id||"")}});
+  return snapshot;
+}
+let fa2LastStrategyAuctionEvent=null;
+function fa2AfterAuctionStateChange(type,playerId,beforeStates=null){
+  invalidateAuctionIntel();
+  const afterStates=fa2CaptureStrategySlotStates(),before=beforeStates||{};
+  const transitions=Object.keys({...before,...afterStates}).map(key=>({key,from:before[key]?.state||null,to:afterStates[key]?.state||null,currentId:afterStates[key]?.currentId||"",coveredById:afterStates[key]?.coveredById||""})).filter(x=>x.from!==x.to||before[x.key]?.currentId!==afterStates[x.key]?.currentId||before[x.key]?.coveredById!==afterStates[x.key]?.coveredById);
+  fa2LastStrategyAuctionEvent={type:String(type||"AUCTION_CHANGED"),playerId:String(playerId||""),at:Date.now(),transitions};
+  try{window.dispatchEvent(new CustomEvent("fa2:strategy-slots-changed",{detail:fa2LastStrategyAuctionEvent}))}catch{}
+  return fa2LastStrategyAuctionEvent;
 }
 function fa2PlanOpenBudgetContext(){
   const runtimes=fa2PlanRuntimeSlots.__busy?[]:fa2PlanRuntimeSlots();
@@ -3440,31 +3473,30 @@ function fa2DynamicStrategicCap(slot,candidate,runtimeHint=null){
   }finally{fa2PlanRuntimeSlots.__busy=false}
   return Math.max(1,Math.min(Number(mine.maxNext)||base,Math.round(base*scale)));
 }
-function fa2PlanRuntimeEntryForPlayer(p){
-  const id=String(p?.id??"");
-  for(const rt of fa2PlanRuntimeSlots()){
-    if(rt.covered)continue;
-    if(String(rt.current?.id||"")===id)return {runtime:rt,kind:"target",rank:0,candidate:rt.current,maxRecommended:rt.currentCap,promoted:rt.promoted};
-    const i=rt.alternatives.findIndex(x=>String(x.id)===id);if(i>=0)return {runtime:rt,kind:"alt",rank:i+1,candidate:rt.alternatives[i],maxRecommended:fa2DynamicStrategicCap(rt.slot,rt.alternatives[i]),promoted:false};
-  }
-  return null;
-}
 function fa2PlayerPlanMembership(p){
-  const plan=fa2LoadPurchasePlan(),id=String(p?.id??""),out=[];
-  Object.entries(plan.slots||{}).forEach(([key,slot])=>{
-    if(String(slot.target?.id||slot.targetId||"")===id)out.push({slot:key,label:"TARGET",rank:0,candidate:slot.target||{},maxRecommended:Number(slot.target?.maxRecommended||slot.maxRecommended)||0});
-    (slot.alternatives||[]).forEach((x,i)=>{if(String(x?.id||"")===id)out.push({slot:key,label:`ALT ${i+1}`,rank:i+1,candidate:x,maxRecommended:Number(x?.maxRecommended)||0})});
-    (slot.values||[]).forEach(x=>{if(String(x?.id||"")===id)out.push({slot:key,label:"VALUE",rank:9,candidate:x,maxRecommended:Number(x?.maxRecommended)||0})});
-  });
-  const runtime=fa2PlanRuntimeEntryForPlayer(p);
-  if(runtime){
-    const label=runtime.kind==="target"?(runtime.promoted?"TARGET PROMOSSO":"TARGET"): `ALT ${runtime.rank}`;
-    out.unshift({slot:runtime.runtime.key,label,rank:runtime.kind==="target"?-1:runtime.rank,candidate:runtime.candidate,maxRecommended:runtime.maxRecommended,runtime:true});
+  const id=String(p?.id??""),out=[],slotStates=window.FA2Strategy?.SLOT_STATES||{};
+  for(const rt of fa2PlanRuntimeSlots()){
+    if(rt.state===slotStates.COVERED){
+      if(String(rt.coveredBy?.id||"")===id)out.push({slot:rt.key,label:"COPERTURA",rank:-2,candidate:rt.coveredBy,maxRecommended:0,runtime:true});
+      continue;
+    }
+    if(String(rt.current?.id||"")===id){
+      out.push({slot:rt.key,label:rt.state===slotStates.PROMOTED?"TARGET PROMOSSO":"TARGET",rank:-1,candidate:rt.current,maxRecommended:rt.currentCap,runtime:true});
+      continue;
+    }
+    const altIndex=rt.alternatives.findIndex(x=>String(x.id)===id);
+    if(altIndex>=0){
+      const candidate=rt.alternatives[altIndex];
+      out.push({slot:rt.key,label:`ALT ${altIndex+1}`,rank:altIndex+1,candidate,maxRecommended:fa2DynamicStrategicCap(rt.slot,candidate),runtime:true});
+      continue;
+    }
+    const value=(rt.slot?.values||[]).find(x=>String(x?.id||"")===id&&fa2CandidateIsAvailable(x));
+    if(value)out.push({slot:rt.key,label:"VALUE",rank:9,candidate:value,maxRecommended:Number(value.maxRecommended)||0,runtime:true});
   }
-  const seen=new Set();return out.filter(x=>{const k=`${x.slot}:${x.label}`;if(seen.has(k))return false;seen.add(k);return true}).sort((a,b)=>a.rank-b.rank||b.maxRecommended-a.maxRecommended);
+  return out.sort((a,b)=>a.rank-b.rank||b.maxRecommended-a.maxRecommended);
 }
 function fa2StrategyGuidanceForPlayer(p){
-  const runtime=fa2PlanRuntimeEntryForPlayer(p),member=runtime?{slot:runtime.runtime.key,label:runtime.kind==="target"?(runtime.promoted?"TARGET PROMOSSO":"TARGET"):`ALT ${runtime.rank}`,rank:runtime.rank,candidate:runtime.candidate,maxRecommended:runtime.maxRecommended}:fa2PlayerPlanMembership(p)[0];
+  const member=fa2PlayerPlanMembership(p)[0];
   if(!member)return null;
   const plan=fa2LoadPurchasePlan();
   return {...member,primaryName:plan.primaryName||"",secondaryName:plan.secondaryName||"",planUpdatedAt:plan.updatedAt||0};
@@ -3472,25 +3504,33 @@ function fa2StrategyGuidanceForPlayer(p){
 function fa2PlayerPlanHTML(p){
   const tags=fa2PlayerPlanMembership(p);if(!tags.length)return "";
   const plan=fa2LoadPurchasePlan(),top=tags[0],cap=Number(top.maxRecommended)||0;
-  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.5.1</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b></div>`:""}</section>`;
+  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.6</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b></div>`:""}</section>`;
 }
 function fa2PlanCandidateName(x){const p=getPlayer(x?.id);return p?.name||x?.name||"—"}
 function fa2SavedPlanHTML(result){
-  const plan=fa2LoadPurchasePlan(),entries=Object.entries(plan.slots||{}),runtimeByKey=new Map(fa2PlanRuntimeSlots().map(x=>[x.key,x]));
+  const plan=fa2LoadPurchasePlan(),entries=Object.entries(plan.slots||{}),runtimes=fa2PlanRuntimeSlots(),runtimeByKey=new Map(runtimes.map(x=>[x.key,x])),slotStates=window.FA2Strategy?.SLOT_STATES||{};
   if(!entries.length)return `<div class="fa2-saved-plan empty"><div><b>PIANO ACQUISTI</b><span>Nessuno slot bloccato. Apri uno slot e salva TARGET + ALT.</span></div></div>`;
   const currentModule=result?.primary?.module?.id,stale=plan.primaryId&&currentModule&&plan.primaryId!==currentModule;
   const rows=entries.map(([key,slot])=>{
     const rt=runtimeByKey.get(key),canReopen=!!result?.primary&&!stale;
-    if(rt?.covered){
+    if(rt?.state===slotStates.COVERED){
       const p=getPlayer(rt.coveredBy?.id),price=p?state.purchases?.[p.id]?.price:0;
       return `<div class="fa2-plan-row rich covered"><span>${esc(key)}</span><button type="button" class="fa2-plan-target" onclick='openPlayer(${idArg(rt.coveredBy?.id)})'><b>${esc(fa2PlanCandidateName(rt.coveredBy))}</b><small>ACQUISTATO ${price?fmt(price)+" cr":""}</small></button><em>COPERTO</em><small class="fa2-plan-alts">Slot completato: le alternative non vengono più inseguite.</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
     }
+    if(rt?.state===slotStates.LOST_EXHAUSTED){
+      const target=rt.originalTarget||slot.target||{};
+      return `<div class="fa2-plan-row rich lost"><span>${esc(key)}</span><button type="button" class="fa2-plan-target" onclick='openPlayer(${idArg(target.id)})'><b>${esc(fa2PlanCandidateName(target))}</b><small>Nessun candidato disponibile</small></button><em>ESAURITO</em><small class="fa2-plan-alts">TARGET, alternative e VALUE salvati non sono più disponibili.</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
+    }
+    if(rt?.state===slotStates.OPEN){
+      return `<div class="fa2-plan-row rich"><span>${esc(key)}</span><div class="fa2-plan-target"><b>Slot aperto</b><small>Nessun TARGET salvato</small></div><em>APERTO</em><small class="fa2-plan-alts">Rianalizza lo slot per scegliere TARGET e alternative.</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
+    }
     const target=rt?.current||slot.target||{},status=fa2PlanPlayerState(target.id),alts=(rt?.alternatives||slot.alternatives||[]).slice(0,3),cap=rt?.currentCap||Number(target.maxRecommended)||0;
     const lostName=rt?.promoted?fa2PlanCandidateName(rt.originalTarget):"";
-    return `<div class="fa2-plan-row rich ${status.className} ${rt?.promoted?"promoted":""}"><span>${esc(key)}</span><button type="button" class="fa2-plan-target" onclick='openPlayer(${idArg(target.id)})'><b>${esc(fa2PlanCandidateName(target))}${rt?.promoted?' <small class="fa2-promoted-tag">TARGET ↑</small>':""}</b><small>${cap?`MAX STRATEGICO ${fmt(cap)}`:"MAX non salvato"}</small></button><em>${rt?.promoted?"PROMOSSO":status.label}</em><small class="fa2-plan-alts">${lostName?`Perso ${esc(lostName)} · `:""}ALT: ${alts.length?alts.map((x,i)=>`${i+1}. ${esc(fa2PlanCandidateName(x))}`).join(" · "):"—"}</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
+    const stateClass=rt?.state===slotStates.TARGET_ACTIVE?"available":status.className;
+    return `<div class="fa2-plan-row rich ${stateClass} ${rt?.state===slotStates.PROMOTED?"promoted":""}"><span>${esc(key)}</span><button type="button" class="fa2-plan-target" onclick='openPlayer(${idArg(target.id)})'><b>${esc(fa2PlanCandidateName(target))}${rt?.state===slotStates.PROMOTED?' <small class="fa2-promoted-tag">TARGET ↑</small>':""}</b><small>${cap?`MAX STRATEGICO ${fmt(cap)}`:"MAX non salvato"}</small></button><em>${esc(rt?.stateLabel||status.label)}</em><small class="fa2-plan-alts">${lostName?`Perso ${esc(lostName)} · `:""}ALT: ${alts.length?alts.map((x,i)=>`${i+1}. ${esc(fa2PlanCandidateName(x))}`).join(" · "):"—"}</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
   }).join("");
-  const open=fa2PlanRuntimeSlots().filter(x=>!x.covered).length,covered=entries.length-open;
-  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.5.1</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${rows}</div>`;
+  const covered=runtimes.filter(x=>x.state===slotStates.COVERED).length,exhausted=runtimes.filter(x=>x.state===slotStates.LOST_EXHAUSTED).length,open=Math.max(0,entries.length-covered-exhausted);
+  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.6</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti${exhausted?` · ${exhausted} esauriti`:""}`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${rows}</div>`;
 }
 function fa2CandidateHTML(x,badge){
   if(!x)return "";
@@ -3515,7 +3555,7 @@ function fa2OpenSlotAnalysis(slotKey){
   const altHtml=(a.alternatives||[]).map((x,i)=>fa2CandidateHTML(x,`ALT ${i+1}`)).join("");
   const valueHtml=(a.values||[]).map(x=>fa2CandidateHTML(x,"VALUE")).join("");
   $("#fa2SlotDialogContent").innerHTML=`<div class="dialog-body fa2-slot-dialog-body">
-    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.5.1</div><h2>${esc(a.roles.join("/"))}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
+    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.6</div><h2>${esc(a.roles.join("/"))}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
     <div class="fa2-slot-summary"><div><span>SCARSITÀ</span><b>${a.summary.scarcity}</b></div><div><span>FORTI</span><b>${a.summary.strongCount}</b></div><div><span>PROFONDITÀ</span><b>${a.summary.depth}</b></div><div><span>BUDGET SLOT</span><b>${a.budget.perSlot}</b></div></div>
     <div class="fa2-slot-note">Il MAX strategico è il tetto operativo del Piano Strategia. Nel flusso Acquista, superarlo genera un avviso e richiede conferma. Il MAX LIVE resta separato.</div>
     <div class="fa2-candidate-section"><h3>TARGET</h3>${a.target?fa2CandidateHTML(a.target,"TARGET"):'<p class="muted">Nessun candidato.</p>'}</div>
@@ -3605,7 +3645,7 @@ function renderStrategyView(){
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v35")||"null")}catch{}
   const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.5.1</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Il Piano Strategia ora guida anche il flusso Acquista; il MAX LIVE resta indipendente.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.6</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Strategia e Asta Live ora leggono la stessa state machine; il MAX LIVE resta indipendente.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
@@ -3641,4 +3681,3 @@ window.addEventListener("fa2:player-intelligence-updated",()=>{
   if(d?.open&&id)openPlayer(id);
   if(state.view==="strategyView")renderStrategyView();
 });
-

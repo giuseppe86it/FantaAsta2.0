@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.5
+/* FantaAsta2.0 — Strategy Engine alpha 3.6
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -21,10 +21,62 @@
   const DEFAULT_PROFILE={schema:2,mode:"mono",scope:"full",primary:"433",secondary:"4231",autoTopN:2,lastGeneratedAt:0};
   const ROLE_MACRO={Por:"POR",Dd:"DIF",Ds:"DIF",Dc:"DIF",B:"DIF",E:"CEN",M:"CEN",C:"CEN",W:"ATT",T:"ATT",A:"ATT",Pc:"ATT"};
   const D_FACTOR_ROLES=new Set(["Dc","B","Dd","Ds","E","M"]);
+  const SLOT_STATES=Object.freeze({
+    OPEN:"OPEN",
+    TARGET_ACTIVE:"TARGET_ACTIVE",
+    PROMOTED:"PROMOTED",
+    COVERED:"COVERED",
+    LOST_EXHAUSTED:"LOST_EXHAUSTED"
+  });
+  const SLOT_PLAYER_STATES=Object.freeze({
+    AVAILABLE:"AVAILABLE",
+    OWNED:"OWNED",
+    LOST:"LOST",
+    MISSING:"MISSING"
+  });
+  const SLOT_STATE_LABELS=Object.freeze({
+    [SLOT_STATES.OPEN]:"APERTO",
+    [SLOT_STATES.TARGET_ACTIVE]:"TARGET ATTIVO",
+    [SLOT_STATES.PROMOTED]:"PROMOSSO",
+    [SLOT_STATES.COVERED]:"COPERTO",
+    [SLOT_STATES.LOST_EXHAUSTED]:"PERSO / ESAURITO"
+  });
   const clone=v=>JSON.parse(JSON.stringify(v));
   const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,Number(v)||0));
   const avg=a=>a.length?a.reduce((s,x)=>s+x,0)/a.length:0;
   const round=v=>Math.round(Number(v)||0);
+
+  /* Alpha 3.6 — fonte unica dello stato slot.
+     Il motore riceve soltanto Piano Strategia + stato mercato corrente:
+     non salva copie dello stato e resta quindi compatibile con i piani A3.4/A3.5. */
+  function uniqueSlotCandidates(slot){
+    const rows=[slot?.target,...(slot?.alternatives||[]),...(slot?.values||[])].filter(x=>x&&String(x.id??""));
+    const seen=new Set();
+    return rows.filter(x=>{const id=String(x.id);if(seen.has(id))return false;seen.add(id);return true});
+  }
+  function resolveSlotState(slot,playerStateFor,key=slot?.key||""){
+    const stateFor=typeof playerStateFor==="function"?playerStateFor:()=>SLOT_PLAYER_STATES.MISSING;
+    const originalTarget=slot?.target||null,ordered=uniqueSlotCandidates(slot);
+    const candidateStates=ordered.map(candidate=>({candidate,state:stateFor(String(candidate.id))||SLOT_PLAYER_STATES.MISSING}));
+    const owned=candidateStates.find(x=>x.state===SLOT_PLAYER_STATES.OWNED);
+    const base={key:key||slot?.key||"",slot:slot||{},originalTarget,candidateStates};
+    if(owned){
+      return {...base,state:SLOT_STATES.COVERED,stateLabel:SLOT_STATE_LABELS[SLOT_STATES.COVERED],covered:true,coveredBy:owned.candidate,current:null,alternatives:[],promoted:false};
+    }
+    if(!ordered.length){
+      return {...base,state:SLOT_STATES.OPEN,stateLabel:SLOT_STATE_LABELS[SLOT_STATES.OPEN],covered:false,coveredBy:null,current:null,alternatives:[],promoted:false};
+    }
+    const available=candidateStates.filter(x=>x.state===SLOT_PLAYER_STATES.AVAILABLE).map(x=>x.candidate);
+    if(!available.length){
+      return {...base,state:SLOT_STATES.LOST_EXHAUSTED,stateLabel:SLOT_STATE_LABELS[SLOT_STATES.LOST_EXHAUSTED],covered:false,coveredBy:null,current:null,alternatives:[],promoted:false};
+    }
+    const current=available[0],promoted=!!originalTarget&&String(current.id)!==String(originalTarget.id);
+    const state=promoted?SLOT_STATES.PROMOTED:SLOT_STATES.TARGET_ACTIVE;
+    return {...base,state,stateLabel:SLOT_STATE_LABELS[state],covered:false,coveredBy:null,current,alternatives:available.slice(1,4),promoted};
+  }
+  function resolvePlanSlots(plan,playerStateFor){
+    return Object.entries(plan?.slots||{}).map(([key,slot])=>resolveSlotState(slot,playerStateFor,key));
+  }
 
   function loadProfile(){
     let raw={};
@@ -375,5 +427,5 @@
     const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
     return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot};
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),SLOT_STATES,SLOT_PLAYER_STATES,SLOT_STATE_LABELS,loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot,resolveSlotState,resolvePlanSlots};
 })();
