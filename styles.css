@@ -3141,5 +3141,7 @@ body{
 .live-player-card.plan-recommended{border-color:#36d497;background:linear-gradient(145deg,#0d3829,#10253a);box-shadow:inset 0 0 0 1px rgba(57,214,150,.10)}
 .live-price-grid.with-strategy{grid-template-columns:repeat(5,1fr)}.live-price-grid .live-strategy-max{background:#123e2e;border:1px solid rgba(65,226,159,.28)}.live-price-grid .live-strategy-max b{color:#72e9b4}
 .live-target-alert.plan{border-color:#35cc91;background:linear-gradient(145deg,#12392b,#2f2714)}
+.live-target-alert.covered{grid-template-columns:1fr;border-color:#35cc91;background:linear-gradient(145deg,#0f3b2c,#102b28)}
+.live-target-alert.covered span{color:#55e6aa}
 .fa2-plan-row.rich.covered{background:rgba(22,66,51,.28)}.fa2-plan-row.rich.covered>em{background:#164f39;color:#7ff1bc}.fa2-plan-row.rich.promoted{background:rgba(91,66,22,.24)}.fa2-plan-row.rich.promoted>em{background:#5a4117;color:#ffd078}.fa2-promoted-tag{display:inline!important;margin-left:5px!important;color:#ffd078!important;font-size:7px!important}
 @media(max-width:520px){.live-price-grid.with-strategy{grid-template-columns:repeat(2,1fr)}.live-price-grid.with-strategy>div:last-child{grid-column:span 2}}

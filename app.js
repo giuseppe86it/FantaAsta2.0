@@ -1386,8 +1386,22 @@ function bestAlternativeForTarget(lost,intel=getAuctionIntel()){
   ].join(" · ");
   return {lost,player:best.p,score:best.score,reason};
 }
+function fa2CoveredPlanOriginalTargetIds(){
+  if(typeof fa2PlanRuntimeSlots!=="function")return new Set();
+  const ids=new Set();
+  for(const rt of fa2PlanRuntimeSlots()){
+    if(!rt?.covered||!rt?.originalTarget?.id)continue;
+    ids.add(String(rt.originalTarget.id));
+  }
+  return ids;
+}
 function dynamicTargetRecommendations(intel=getAuctionIntel()){
+  // A3.5.1: se uno slot del Piano Strategia è già coperto da un nostro
+  // acquisto, il vecchio motore TARGET dinamici non deve continuare a
+  // inseguire il TARGET originale perso (es. Calhanoglu -> Perrone).
+  const coveredOriginalTargets=fa2CoveredPlanOriginalTargetIds();
   return lostStaticTargets()
+    .filter(lost=>!coveredOriginalTargets.has(String(lost.id)))
     .map(lost=>bestAlternativeForTarget(lost,intel))
     .filter(Boolean)
     .sort((a,b)=>{
@@ -1405,6 +1419,12 @@ function liveTargetBannerHTML(intel=getAuctionIntel()){
   const promoted=planRuntime.find(x=>!x.covered&&x.promoted&&x.current&&playerAuctionPhase(getPlayer(x.current.id))===state.auctionPhase);
   if(promoted){
     return `<div class="live-target-alert urgent plan"><div><span>TARGET PERSO · ${esc(promoted.originalTarget?.name||promoted.key)}</span><b>${kitHTML(getPlayer(promoted.current.id)?.club,'xs',getPlayer(promoted.current.id)?.club)} ${esc(promoted.current.name)}</b><small>Promosso automaticamente · ${esc(promoted.key)} · MAX strategico ${fmt(promoted.currentCap||0)}</small></div><button type="button" onclick='selectLivePlayer(${idArg(promoted.current.id)})'>PARTECIPA</button></div>`;
+  }
+  const covered=planRuntime.find(x=>x.covered&&x.coveredBy&&playerAuctionPhase(getPlayer(x.coveredBy.id))===state.auctionPhase&&x.originalTarget&&(state.sold?.[getPlayer(x.originalTarget.id)?.id]||getPlayer(x.originalTarget.id)?.outOfListone));
+  if(covered){
+    const p=getPlayer(covered.coveredBy.id);
+    const paid=Number(state.purchases?.[p?.id]?.price||0);
+    return `<div class="live-target-alert plan covered"><div><span>SLOT COPERTO · ${esc(covered.key)}</span><b>${kitHTML(p?.club,'xs',p?.club)} ${esc(covered.coveredBy.name)}</b><small>Acquistato da noi${paid?` a ${fmt(paid)} cr`:""}. Il Piano Strategia non cerca più sostituti per ${esc(covered.originalTarget?.name||covered.key)}.</small></div></div>`;
   }
   const current=dynamicTargetRecommendations(intel).find(x=>playerAuctionPhase(x.lost)===state.auctionPhase);
   if(!current)return "";
@@ -3317,10 +3337,10 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.5").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.5.1").catch(()=>{}));
 
 /* =========================================================
-   FantaAsta2.0 alpha 3.5 — Strategy ↔ Asta Live
+   FantaAsta2.0 alpha 3.5.1 — Covered Slot Hotfix
    Il Piano Strategia resta separato dal MAX LIVE: guida l'acquisto
    con un tetto operativo e una conferma esplicita oltre soglia.
    ========================================================= */
@@ -3452,7 +3472,7 @@ function fa2StrategyGuidanceForPlayer(p){
 function fa2PlayerPlanHTML(p){
   const tags=fa2PlayerPlanMembership(p);if(!tags.length)return "";
   const plan=fa2LoadPurchasePlan(),top=tags[0],cap=Number(top.maxRecommended)||0;
-  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.5</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b></div>`:""}</section>`;
+  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.5.1</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b></div>`:""}</section>`;
 }
 function fa2PlanCandidateName(x){const p=getPlayer(x?.id);return p?.name||x?.name||"—"}
 function fa2SavedPlanHTML(result){
@@ -3470,7 +3490,7 @@ function fa2SavedPlanHTML(result){
     return `<div class="fa2-plan-row rich ${status.className} ${rt?.promoted?"promoted":""}"><span>${esc(key)}</span><button type="button" class="fa2-plan-target" onclick='openPlayer(${idArg(target.id)})'><b>${esc(fa2PlanCandidateName(target))}${rt?.promoted?' <small class="fa2-promoted-tag">TARGET ↑</small>':""}</b><small>${cap?`MAX STRATEGICO ${fmt(cap)}`:"MAX non salvato"}</small></button><em>${rt?.promoted?"PROMOSSO":status.label}</em><small class="fa2-plan-alts">${lostName?`Perso ${esc(lostName)} · `:""}ALT: ${alts.length?alts.map((x,i)=>`${i+1}. ${esc(fa2PlanCandidateName(x))}`).join(" · "):"—"}</small>${canReopen?`<button type="button" class="fa2-plan-reopen" data-fa2-slot-open="${esc(key)}">Rianalizza slot</button>`:""}</div>`;
   }).join("");
   const open=fa2PlanRuntimeSlots().filter(x=>!x.covered).length,covered=entries.length-open;
-  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.5</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${rows}</div>`;
+  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.5.1</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${rows}</div>`;
 }
 function fa2CandidateHTML(x,badge){
   if(!x)return "";
@@ -3495,7 +3515,7 @@ function fa2OpenSlotAnalysis(slotKey){
   const altHtml=(a.alternatives||[]).map((x,i)=>fa2CandidateHTML(x,`ALT ${i+1}`)).join("");
   const valueHtml=(a.values||[]).map(x=>fa2CandidateHTML(x,"VALUE")).join("");
   $("#fa2SlotDialogContent").innerHTML=`<div class="dialog-body fa2-slot-dialog-body">
-    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.5</div><h2>${esc(a.roles.join("/"))}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
+    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.5.1</div><h2>${esc(a.roles.join("/"))}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
     <div class="fa2-slot-summary"><div><span>SCARSITÀ</span><b>${a.summary.scarcity}</b></div><div><span>FORTI</span><b>${a.summary.strongCount}</b></div><div><span>PROFONDITÀ</span><b>${a.summary.depth}</b></div><div><span>BUDGET SLOT</span><b>${a.budget.perSlot}</b></div></div>
     <div class="fa2-slot-note">Il MAX strategico è il tetto operativo del Piano Strategia. Nel flusso Acquista, superarlo genera un avviso e richiede conferma. Il MAX LIVE resta separato.</div>
     <div class="fa2-candidate-section"><h3>TARGET</h3>${a.target?fa2CandidateHTML(a.target,"TARGET"):'<p class="muted">Nessun candidato.</p>'}</div>
@@ -3585,7 +3605,7 @@ function renderStrategyView(){
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v35")||"null")}catch{}
   const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.5</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Il Piano Strategia ora guida anche il flusso Acquista; il MAX LIVE resta indipendente.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.5.1</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Il Piano Strategia ora guida anche il flusso Acquista; il MAX LIVE resta indipendente.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
