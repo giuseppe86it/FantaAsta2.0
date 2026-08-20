@@ -3089,6 +3089,33 @@ body{
 @media(max-width:600px){.fa2-reg-strip.alpha2{grid-template-columns:repeat(3,1fr)}.fa2-reg-mini{grid-template-columns:repeat(2,1fr)}.fa2-kpis.alpha2{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:390px){.fa2-reg-grid{grid-template-columns:1fr 1fr}.fa2-reg-under-row{grid-template-columns:1fr 1fr}.fa2-reg-under-row .fa2-check{grid-column:1/-1}.fa2-reg-toggle-grid{grid-template-columns:1fr}.fa2-explain{grid-template-columns:1fr}.fa2-priority{grid-column:auto}.fa2-reg-strip.alpha2{grid-template-columns:repeat(2,1fr)}}
 
+/* =========================================================
+   FantaAsta2.0 A4 — Regulation Studio
+   ========================================================= */
+.fa2-reg-settings-card .fa2-reg-mini{grid-template-columns:repeat(3,minmax(0,1fr))}
+.fa2-reg-studio{padding:8px;display:grid;gap:7px}
+.fa2-reg-studio-section{border:1px solid #294761;border-radius:12px;background:#0a192a;overflow:hidden}
+.fa2-reg-studio-section>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:9px;padding:12px;cursor:pointer}
+.fa2-reg-studio-section>summary::-webkit-details-marker{display:none}
+.fa2-reg-studio-section>summary span{font-size:11px;font-weight:900;color:#e1ebf5}
+.fa2-reg-studio-section>summary small{max-width:52%;font-size:8.5px;color:#8fa5ba;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fa2-reg-studio-section[open]>summary{border-bottom:1px solid #294761;background:#0d2135}.fa2-reg-studio-section[open]>summary span{color:#60e1a8}
+.fa2-reg-studio-body{padding:11px}.fa2-reg-studio-body .fa2-reg-grid{margin:0}
+.fa2-reg-studio-body label{margin:0;font-size:9px;color:#aebed0}
+.fa2-reg-studio-body input,.fa2-reg-studio-body select{width:100%;margin-top:4px;padding:9px;border:1px solid #2b4a66;border-radius:9px;background:#071421;color:#fff}
+.fa2-reg-studio-body input:disabled,.fa2-reg-studio-body select:disabled{opacity:.48}
+.fa2-reg-help{margin:0 0 9px;color:#93a6bb;font-size:9px;line-height:1.45}
+.fa2-reg-under-row{grid-template-columns:1.2fr .9fr .8fr .8fr}
+.fa2-reg-derived{min-height:51px;padding:7px 8px;border:1px solid #294761;border-radius:9px;background:#0d1d30;text-align:center}.fa2-reg-derived span{display:block;color:#8297ad;font-size:7px;text-transform:uppercase}.fa2-reg-derived b{display:block;margin-top:3px;font-size:12px;color:#61e3aa}
+.fa2-reg-bonus-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.fa2-reg-condition-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}.fa2-reg-condition-grid>div{padding:7px;border:1px solid #294761;border-radius:10px;background:#0b1b2d}.fa2-reg-condition-grid .fa2-check{margin-bottom:7px!important}
+.fa2-reg-band-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:9px 0}.fa2-reg-band{padding:8px;border:1px solid #294761;border-radius:9px;background:#0b1b2d}.fa2-reg-band>b{display:block;margin-bottom:6px;color:#93a6ba;font-size:8px}.fa2-reg-band>div{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:5px;align-items:end}.fa2-reg-band label,.fa2-reg-band span{min-width:0;padding:0;border:0;background:none;color:#91a5ba;font-size:7px}.fa2-reg-band span{display:flex;min-height:42px;align-items:center}.fa2-reg-band input{margin-top:3px!important;padding:7px 5px!important}
+.fa2-reg-pending{margin-top:9px;padding:10px;border:1px solid #705320;border-radius:10px;background:#2a2112}.fa2-reg-pending b{display:block;color:#ffc15e;font-size:9px}.fa2-reg-pending span{display:block;margin-top:4px;color:#d6c39e;font-size:8.5px;line-height:1.45}
+.fa2-reg-studio>.fa2-reg-actions{padding:5px 0 0}
+.fa2-reg-strip.alpha4{grid-template-columns:repeat(4,minmax(0,1fr))}.fa2-reg-strip.alpha4 b{font-size:9px}
+@media(max-width:600px){.fa2-reg-bonus-grid,.fa2-reg-condition-grid,.fa2-reg-band-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:390px){.fa2-reg-settings-card .fa2-reg-mini{grid-template-columns:repeat(2,minmax(0,1fr))}.fa2-reg-under-row{grid-template-columns:1fr 1fr}.fa2-reg-under-row .fa2-check{grid-column:1/-1}.fa2-reg-studio-section>summary small{max-width:46%}.fa2-reg-condition-grid{grid-template-columns:1fr}.fa2-reg-strip.alpha4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
 
 /* FantaAsta2.0 alpha 2.2 — analisi pre-asta/live */
 .fa2-scope-card{margin:8px 0 10px;padding:10px;border:1px solid #29445f;border-radius:14px;background:#0b1829}.fa2-scope-card>span{display:block;color:#8fa4ba;font-size:8px;font-weight:900;letter-spacing:.08em;margin-bottom:7px}.fa2-scope-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px}.fa2-scope{border:1px solid #29445f;border-radius:11px;background:#102039;color:#b8c7d6;padding:9px 8px;text-align:left}.fa2-scope b{display:block;font-size:10px}.fa2-scope small{display:block;margin-top:2px;color:#8799ad;font-size:8px}.fa2-scope.active{border-color:#3ad994;background:#123828;color:#67eab2}.fa2-scope.active small{color:#a6d9c2}@media(max-width:390px){.fa2-scope-grid{grid-template-columns:1fr}.fa2-scope{text-align:center}}

@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.9
+/* FantaAsta2.0 — Strategy Engine A4
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -338,7 +338,8 @@
     const maxFvm=Math.max(1,...available.map(p=>Number(p?.fvm)||0));
     const maxPrice=Math.max(1,...available.map(p=>basePrice(p,ctx)));
     const underRules=(reg?.underRules||[]).filter(x=>x.enabled&&Number(x.min)>0);
-    return {available,maxFvm,maxPrice,underRules,reg,ctx,piCache:new Map(),candidatePoolCache:new Map()};
+    const regulationSignals=window.FA2Regulation?.strategicImpact?.(reg)||{sourceHistoryMultiplier:1,attackEventWeight:1,disciplineWeight:1,goalkeeperWeight:1,thresholdAttackBias:1,floorBias:1,ceilingBias:1,depthDemand:1};
+    return {available,maxFvm,maxPrice,underRules,reg,ctx,regulationSignals,piCache:new Map(),candidatePoolCache:new Map()};
   }
   function cachedPlayerIntelligence(p,env){
     const key=String(p?.id??p?.name??"");
@@ -354,7 +355,7 @@
     const maxPrice=Math.max(1,Number(norm?.maxPrice)||env.maxPrice);
     const fvmScore=clamp(100*Math.sqrt(fvm/maxFvm));
     const pricePower=clamp(100*Math.sqrt(price/maxPrice));
-    const flex=clamp((roles.length-1)*32+(roles.length>=3?8:0));
+    const flex=env.reg?.gameMode==="classic"?0:clamp((roles.length-1)*32+(roles.length>=3?8:0));
     const underMatches=env.underRules.filter(r=>playerIsUnder(p,r,env.ctx)).length;
     const youth=env.underRules.length?100*underMatches/env.underRules.length:50;
     const piRaw=cachedPlayerIntelligence(p,env);
@@ -364,10 +365,11 @@
     const baseIntelligence=clamp(fvmScore*.44+pricePower*.18+starter*.25+flex*.08+youth*.05);
     // Lo storico pesa fino al 34%, modulato dall'affidabilità/minuti disponibili.
     // In assenza di feed storico il comportamento resta identico all'alpha 2.2.
-    const historyWeight=historyScore>0?(.16+.18*(historyReliability/100)):0;
-    const intelligence=clamp(baseIntelligence*(1-historyWeight)+historyScore*historyWeight);
+    const historyWeight=historyScore>0?clamp((.16+.18*(historyReliability/100))*Number(env.regulationSignals?.sourceHistoryMultiplier||1),0,.42):0;
+    const regulationAdjustment=Number(window.FA2Regulation?.playerAdjustment?.(p,pi,env.reg,env.regulationSignals))||0;
+    const intelligence=clamp(baseIntelligence*(1-historyWeight)+historyScore*historyWeight+regulationAdjustment);
     const efficiency=clamp(68+(intelligence-pricePower)*.48);
-    return {intelligence,baseIntelligence,historyScore,historyReliability,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
+    return {intelligence,baseIntelligence,historyScore,historyReliability,regulationAdjustment,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
   }
   function slotCandidatePool(roles,env){
     const cacheKey=roles.slice().sort().join("/");
@@ -391,7 +393,7 @@
     const topScore=candidates[0]?.m.intelligence||0;
     const strongThreshold=Math.max(56,topScore*.72);
     const strong=candidates.filter(x=>x.m.intelligence>=strongThreshold&&x.m.starter>=45);
-    const effectiveSupply=candidates.slice(0,30).reduce((s,x)=>s+clamp((x.m.intelligence-34)/54,0,1)*(0.55+x.m.starter/220),0);
+    const effectiveSupply=candidates.slice(0,30).reduce((s,x)=>s+clamp((x.m.intelligence-34)/54,0,1)*(0.55+x.m.starter/220),0)*Number(env.regulationSignals?.availabilitySupplyMultiplier||1);
     const targetSupply=demand*7.2;
     let scarcity=clamp((1-Math.min(1,effectiveSupply/targetSupply))*100);
     if(candidates.length<demand*6)scarcity=Math.max(scarcity,clamp((1-candidates.length/(demand*6))*100));
@@ -426,8 +428,7 @@
     return selected;
   }
   function regulationFit(module,selected,env){
-    const reg=env.reg||{},rules=env.underRules;
-    const selectedPlayers=selected.map(x=>x.p);
+    const reg=env.reg||{},rules=env.underRules,signals=env.regulationSignals||{};
     const underHealth=rules.length?avg(rules.map(rule=>{
       const pool=env.available.filter(p=>compatibleAnyModule(p,module)&&playerIsUnder(p,rule,env.ctx));
       const target=Math.max(1,Number(rule.min)||0)*8;
@@ -442,9 +443,26 @@
     let dFit=70;
     if(reg?.modifiers?.dFactor?.enabled){
       const defenders=selected.filter(x=>x.roles.some(r=>D_FACTOR_ROLES.has(r)));
-      dFit=clamp(45+defenders.length*5+avg(defenders.map(x=>x.m.intelligence))*.22+(reg.modifiers.dFactor.includeGoalkeeper?3:0));
+      const bandPeak=Math.max(0,...(reg.modifiers.dFactor.bands||[]).map(x=>Number(x.value)||0));
+      const applyFactor=reg.modifiers.dFactor.applyTo==="opponent"?.97:1;
+      dFit=clamp((45+defenders.length*5+avg(defenders.map(x=>x.m.intelligence))*.22+(reg.modifiers.dFactor.includeGoalkeeper?3:0)+(bandPeak-6)*.8)*applyFactor);
     }
-    return round(underHealth*.40+switchFit*.30+dFit*.30);
+    /* Il preset A3.9 resta il punto zero. Panca, soglie e bonus personalizzati
+       aggiungono piccoli delta sensibili al tipo di XI soltanto quando il
+       regolamento viene davvero cambiato nello Studio A4. */
+    const baseFit=underHealth*.40+switchFit*.30+dFit*.30;
+    const starterFloor=avg(selected.map(x=>x.m.starter)),reliability=avg(selected.map(x=>x.m.historyReliability||50));
+    const depthProfile=clamp(48+starterFloor*.28+reliability*.14);
+    const depthDelta=(Number(signals.depthDemand||1)-1)*(depthProfile-70)*.18;
+    const ruleDelta=avg(selected.map(x=>x.m.regulationAdjustment||0));
+    const attackShare=selected.length?selected.filter(x=>x.roles.some(role=>ROLE_MACRO[role]==="ATT")).length/selected.length:0;
+    const qualityProfile=avg(selected.map(x=>x.m.intelligence))-70;
+    const scoringDelta=ruleDelta*.45
+      +(Number(signals.attackEventWeight||1)-1)*attackShare*5
+      +(Number(signals.thresholdAttackBias||1)-1)*attackShare*4
+      +(Number(signals.floorBias||1)-1)*qualityProfile*.10
+      +(Number(signals.ceilingBias||1)-1)*qualityProfile*.08;
+    return round(clamp(baseFit+depthDelta+scoringDelta));
   }
   function compatibleAnyModule(p,module){return module.slots.some(r=>compatible(p,r))}
   function moduleFlexibility(module,selected,reg){

@@ -1,12 +1,12 @@
 {
-  "schema": 2,
+  "schema": 3,
   "id": "mia-lega",
   "name": "La mia lega",
   "season": "2026/27",
   "availability": "single",
   "gameMode": "mantra",
   "budget": {"initial": 2500, "minBid": 1, "minResidualPerSlot": 1},
-  "roster": {"total": 25, "goalkeepers": 3, "movement": 22, "clubLimit": 5},
+  "roster": {"total": 25, "goalkeepers": 3, "movement": 22, "clubLimit": 5, "hidden": false},
   "underRules": [
     {"id": "u23", "enabled": true, "maxAge": 23, "birthYearFrom": 2003, "min": 2, "label": "U23"},
     {"id": "u21", "enabled": true, "maxAge": 21, "birthYearFrom": 2005, "min": 1, "label": "U21"}
@@ -18,10 +18,20 @@
     "source": "fantacalcio",
     "bonuses": {"goal": 3, "goalAgainst": -1, "penaltyScored": 3, "penaltyMissed": -3, "penaltySaved": 3, "yellow": -0.5, "red": -1, "assistStandard": 1, "assistSoft": 1, "assistGold": 1, "ownGoal": -2, "equalizer": 0, "winner": 0, "cleanSheet": 1, "playerOfMatch": 0.5},
     "goalThreshold": {"firstGoal": 66, "mode": "fixed", "step": 6},
+    "limitWin": {"enabled": false, "delta": 0},
+    "limitDraw": {"enabled": false, "delta": 0},
+    "autoGoal": {"enabled": false, "threshold": 0},
     "bookedNoVote": true
   },
   "modifiers": {
-    "dFactor": {"enabled": true, "includeGoalkeeper": true, "applyTo": "own", "preset": "recommended"},
+    "dFactor": {"enabled": true, "includeGoalkeeper": true, "applyTo": "own", "preset": "recommended", "bands": [
+      {"lt": 6, "value": 0},
+      {"gte": 6, "lt": 6.25, "value": 1},
+      {"gte": 6.25, "lt": 6.5, "value": 2},
+      {"gte": 6.5, "lt": 6.75, "value": 3},
+      {"gte": 6.75, "lt": 7, "value": 4.5},
+      {"gte": 7, "value": 6}
+    ]},
     "performance": {"enabled": false},
     "fairplay": {"enabled": true, "bonus": 0.5},
     "captain": {"enabled": false, "bands": []}

@@ -20,6 +20,22 @@ const LISTONE_SYNC_SCHEMA=1;
 function safeJsonParse(raw,fallback=null){
   try{return raw?JSON.parse(raw):fallback}catch{return fallback}
 }
+let fa2AppRegulationCache=null;
+function currentRegulation(){
+  if(fa2AppRegulationCache)return fa2AppRegulationCache;
+  fa2AppRegulationCache=window.FA2Regulation?.load?.()||{
+    budget:{initial:2500,minBid:1,minResidualPerSlot:1},roster:{total:25,goalkeepers:3,movement:22,clubLimit:5},
+    underRules:[{id:"u23",enabled:true,birthYearFrom:2003,min:2},{id:"u21",enabled:true,birthYearFrom:2005,min:1}]
+  };
+  return fa2AppRegulationCache;
+}
+function configuredBudget(){return Math.max(1,Number(currentRegulation()?.budget?.initial)||2500)}
+function configuredMinBid(){return Math.max(1,Number(currentRegulation()?.budget?.minBid)||1)}
+function configuredReservePerSlot(){return Math.max(configuredMinBid(),Number(currentRegulation()?.budget?.minResidualPerSlot)||1)}
+function configuredRosterTotal(){return Math.max(1,Number(currentRegulation()?.roster?.total)||25)}
+function configuredGoalkeepers(){return Math.max(1,Number(currentRegulation()?.roster?.goalkeepers)||3)}
+function configuredClubLimit(){return Math.max(0,Number(currentRegulation()?.roster?.clubLimit)||0)}
+function configuredUnderRule(id){return (currentRegulation()?.underRules||[]).find(rule=>rule.id===id)||null}
 let appliedListoneSync=safeJsonParse(localStorage.getItem(LISTONE_SYNC_STORAGE),null);
 let pendingListoneSnapshot=null;
 
@@ -54,12 +70,18 @@ function playerBirthYear(p){
   return Number.isFinite(y)?y:0;
 }
 function isU21Player(p){
-  const y=playerBirthYear(p);
-  return !!p && (!!p.u21 || (y>0 && y>=YOUTH_RULES_2627.u21MinBirthYear));
+  const y=playerBirthYear(p),rule=configuredUnderRule("u21"),from=Number(rule?.birthYearFrom)||YOUTH_RULES_2627.u21MinBirthYear;
+  return !!p && (y>0?y>=from:!!p.u21);
 }
 function isU23Player(p){
-  const y=playerBirthYear(p);
-  return !!p && (isU21Player(p) || !!p.u23 || (y>0 && y>=YOUTH_RULES_2627.u23MinBirthYear));
+  const y=playerBirthYear(p),rule=configuredUnderRule("u23"),from=Number(rule?.birthYearFrom)||YOUTH_RULES_2627.u23MinBirthYear;
+  return !!p && (y>0?y>=from:(isU21Player(p)||!!p.u23));
+}
+function playerMatchesUnderRule(p,rule){
+  if(!p||!rule)return false;
+  const y=playerBirthYear(p),from=Number(rule.birthYearFrom)||0;
+  if(y>0&&from>0)return y>=from;
+  return rule.id==="u21"?!!p.u21:rule.id==="u23"?(!!p.u23||!!p.u21):false;
 }
 function youthLabel(p){
   return isU21Player(p)?"U21 + U23":isU23Player(p)?"U23":"—";
@@ -608,20 +630,22 @@ function safetyDashboardHTML(){
   return `<section class="safety-dashboard-card ${state.protectedMode?"protected":""}"><div class="safety-dashboard-status"><span>${state.protectedMode?"LOCK":"OPEN"}</span><div><b>${state.protectedMode?"ASTA PROTETTA":"Protezione disattivata"}</b><small>${last?`Ultima: ${esc(last.label)}`:"Registro pronto"}</small></div></div><div class="safety-dashboard-actions"><button class="${state.protectedMode?"protected-btn":"primary"}" onclick="toggleProtectedMode()">${state.protectedMode?"Sblocca":"Proteggi asta"}</button><button class="ghost" onclick="openSafetyCenter()">Registro</button></div></section>`;
 }
 function finalReportData(){
-  const owned=purchasedPlayers();
-  const total=spent(),remaining=DEFAULT_BUDGET-total;
+  const owned=purchasedPlayers(),reg=currentRegulation(),rosterTotal=configuredRosterTotal(),goalkeepers=configuredGoalkeepers(),clubLimit=configuredClubLimit();
+  const total=spent(),remaining=configuredBudget()-total;
   const byRep={POR:0,DIF:0,CEN:0,ATT:0};owned.forEach(p=>byRep[p.reparto]+=Number(state.purchases[p.id]?.price||0));
   const deals=owned.map(p=>({p,price:Number(state.purchases[p.id]?.price||0),ratio:Number(state.purchases[p.id]?.price||0)/Math.max(1,Number(p.maxPrice||1))})).sort((a,b)=>a.ratio-b.ratio);
   const overs=deals.filter(x=>x.ratio>1).sort((a,b)=>b.ratio-a.ratio);
-  const u23=owned.filter(isU23Player).length,u21=owned.filter(isU21Player).length;
-  const valid=owned.length===25&&owned.filter(p=>p.reparto==="POR").length===3&&u23>=2&&u21>=1&&SERIES_A_CLUBS.every(([c])=>owned.filter(p=>p.club===c).length<=5);
-  return {owned,total,remaining,byRep,deals,overs,u23,u21,valid,avg:owned.length?Math.round(total/owned.length):0};
+  const under=(reg.underRules||[]).filter(rule=>rule.enabled&&Number(rule.min)>0).map(rule=>({...rule,count:owned.filter(p=>playerMatchesUnderRule(p,rule)).length}));
+  const u23=under.find(x=>x.id==="u23")?.count||owned.filter(isU23Player).length,u21=under.find(x=>x.id==="u21")?.count||owned.filter(isU21Player).length;
+  const clubValid=!clubLimit||SERIES_A_CLUBS.every(([c])=>owned.filter(p=>p.club===c).length<=clubLimit);
+  const valid=owned.length===rosterTotal&&owned.filter(p=>p.reparto==="POR").length===goalkeepers&&under.every(rule=>rule.count>=Number(rule.min))&&clubValid;
+  return {owned,total,remaining,byRep,deals,overs,u23,u21,under,valid,rosterTotal,goalkeepers,clubLimit,avg:owned.length?Math.round(total/owned.length):0};
 }
 function openFinalReport(){
   const r=finalReportData();
   const topSpend=r.owned.slice().sort((a,b)=>Number(state.purchases[b.id]?.price||0)-Number(state.purchases[a.id]?.price||0)).slice(0,3);
-  $("#safetyDialogContent").innerHTML=`<div class="dialog-body final-report-body"><div class="safety-modal-head"><div><div class="eyebrow">Report asta</div><h2>${r.owned.length===25?"Rosa completata":"Report parziale"}</h2></div><button class="ghost" onclick="closeSafetyDialog()">✕</button></div>
-    <div class="report-status ${r.valid?"ok":"warn"}">${r.valid?"Rosa formalmente completa":"Rosa ancora in costruzione"} · ${r.owned.length}/25</div>
+  $("#safetyDialogContent").innerHTML=`<div class="dialog-body final-report-body"><div class="safety-modal-head"><div><div class="eyebrow">Report asta</div><h2>${r.owned.length===r.rosterTotal?"Rosa completata":"Report parziale"}</h2></div><button class="ghost" onclick="closeSafetyDialog()">✕</button></div>
+    <div class="report-status ${r.valid?"ok":"warn"}">${r.valid?"Rosa formalmente completa":"Rosa ancora in costruzione"} · ${r.owned.length}/${r.rosterTotal}</div>
     <div class="report-kpis"><div><span>Speso</span><b>${fmt(r.total)}</b></div><div><span>Residuo</span><b>${fmt(r.remaining)}</b></div><div><span>Media</span><b>${fmt(r.avg)}</b></div><div><span>Modulo</span><b>${activeStrategy().module}</b></div></div>
     <div class="report-reps">${["POR","DIF","CEN","ATT"].map(rep=>`<div><span>${rep}</span><b>${fmt(r.byRep[rep])}</b></div>`).join("")}</div>
     <section class="report-section"><h3>Migliori affari vs MAX</h3>${r.deals.slice(0,3).map(x=>`<div><span>${playerNameHTML(x.p)}<small>${x.p.club} · MAX ${fmt(x.p.maxPrice)}</small></span><b>${fmt(x.price)} cr</b></div>`).join("")||'<div class="safety-empty">Nessun acquisto.</div>'}</section>
@@ -679,6 +703,12 @@ function playersAuctionLiveStripHTML(){
 }
 function roleTokens(role){return String(role||"").split("/").map(x=>x.trim()).filter(Boolean)}
 function activeStrategy(){return STRATEGIES[state.strategy] || STRATEGIES.A}
+function scaledStrategyBudgets(strategy=activeStrategy()){
+  const source=strategy?.budgets||{},total=configuredBudget(),baseTotal=Object.values(source).reduce((sum,value)=>sum+Number(value||0),0)||DEFAULT_BUDGET;
+  const keys=["POR","DIF","CEN","ATT"],out={};let assigned=0;
+  keys.forEach((key,index)=>{const value=index===keys.length-1?total-assigned:Math.round(total*(Number(source[key]||0)/baseTotal));out[key]=Math.max(0,value);assigned+=out[key]});
+  return out;
+}
 function slotCompatible(p,slot){
   const tokens=roleTokens(p.role);
   return slot.roles.some(r=>tokens.includes(r));
@@ -1080,11 +1110,12 @@ function teamItems(team,excludePlayerId=null){
 function teamEconomy(team,excludePlayerId=null){
   const items=teamItems(team,excludePlayerId);
   const spentValue=items.reduce((a,x)=>a+Number(x.price||0),0);
-  const remaining=Math.max(0,DEFAULT_BUDGET-spentValue);
-  const missing=Math.max(0,25-items.length);
-  const minimumToFinish=missing;
+  const budget=configuredBudget(),rosterTotal=configuredRosterTotal(),reservePerSlot=configuredReservePerSlot();
+  const remaining=Math.max(0,budget-spentValue);
+  const missing=Math.max(0,rosterTotal-items.length);
+  const minimumToFinish=missing*reservePerSlot;
   const free=Math.max(0,remaining-minimumToFinish);
-  const maxNext=missing>0?Math.max(0,remaining-Math.max(0,missing-1)):0;
+  const maxNext=missing>0?Math.max(0,remaining-Math.max(0,missing-1)*reservePerSlot):0;
   const byRep={POR:0,DIF:0,CEN:0,ATT:0};
   items.forEach(x=>{const rep=playerAuctionPhase(x.p);if(byRep[rep]!=null)byRep[rep]+=Number(x.price||0)});
   return {items,spent:spentValue,remaining,missing,minimumToFinish,free,maxNext,byRep};
@@ -1093,8 +1124,8 @@ function teamClubCount(team,club,excludePlayerId=null){
   return teamItems(team,excludePlayerId).filter(x=>x.p?.club===club).length;
 }
 function clubLimitMessage(team,p){
-  const name=team?.isMine?"La tua rosa":(team?.name||"Questa squadra");
-  return `${name} ha già 5 giocatori del ${p.club}. Il regolamento non consente un sesto giocatore dello stesso club.`;
+  const name=team?.isMine?"La tua rosa":(team?.name||"Questa squadra"),limit=configuredClubLimit();
+  return `${name} ha già ${limit} giocatori del ${p.club}. Il regolamento non consente di superare questo limite.`;
 }
 function mineTeam(){return state.league?.teams?.find(t=>t.isMine)||{id:"mine",name:"La mia squadra",isMine:true}}
 
@@ -1307,7 +1338,7 @@ function currentMissingStrategySlots(){
   return st.slots.map((slot,i)=>({slot,i,filled:!!match.assign[i]})).filter(x=>!x.filled);
 }
 function phaseBudgetRemaining(phase){
-  const guide=Number(activeStrategy().budgets?.[phase]||0);
+  const guide=Number(scaledStrategyBudgets(activeStrategy())?.[phase]||0);
   const used=purchasedPlayers().filter(p=>playerAuctionPhase(p)===phase).reduce((a,p)=>a+Number(state.purchases[p.id]?.price||0),0);
   return Math.max(0,guide-used);
 }
@@ -1328,7 +1359,8 @@ function dynamicAlternativeScore(candidate,lost,intel=getAuctionIntel(),ctx=null
   if(!isMarketEligiblePlayer(candidate)||state.purchases[candidate.id]||state.sold[candidate.id])return -Infinity;
   if(ctx?.managedPlanPlayers?.has(String(candidate.id)))return -Infinity;
   if(playerAuctionPhase(candidate)!==playerAuctionPhase(lost))return -Infinity;
-  if(countClub(candidate.club)>=5)return -Infinity;
+  const clubLimit=configuredClubLimit();
+  if(clubLimit&&countClub(candidate.club)>=clubLimit)return -Infinity;
 
   let score=roleAffinityScore(candidate,lost);
   if(score<18)return -Infinity; // evita alternative solo nominalmente nello stesso reparto
@@ -1354,8 +1386,9 @@ function dynamicAlternativeScore(candidate,lost,intel=getAuctionIntel(),ctx=null
 
   const u23Owned=ctx?.u23Owned??purchasedPlayers().filter(isU23Player).length;
   const u21Owned=ctx?.u21Owned??purchasedPlayers().filter(isU21Player).length;
-  if(u23Owned<2 && isU23Player(candidate))score+=4;
-  if(u21Owned<1 && isU21Player(candidate))score+=5;
+  const u23Rule=configuredUnderRule("u23"),u21Rule=configuredUnderRule("u21"),u23Min=u23Rule?.enabled?Number(u23Rule.min)||0:0,u21Min=u21Rule?.enabled?Number(u21Rule.min)||0:0;
+  if(u23Owned<u23Min && isU23Player(candidate))score+=4;
+  if(u21Owned<u21Min && isU21Player(candidate))score+=5;
 
   const risk=familyRiskForPlayer(candidate,intel).risk;
   score+=Math.min(8,risk*.08); // se il ruolo si sta esaurendo, priorità maggiore
@@ -1515,7 +1548,7 @@ function openDashboardAssignmentEditor(id){
       <select id="dashAssignTeam">${dashboardAssignmentTeamOptions(current)}</select>
     </label>
     <label>Prezzo di aggiudicazione
-      <input id="dashAssignPrice" type="number" min="1" step="1" inputmode="numeric" value="${current.price||""}">
+      <input id="dashAssignPrice" type="number" min="${configuredMinBid()}" step="1" inputmode="numeric" value="${current.price||""}">
     </label>
     <div id="dashAssignEconomicInfo" class="dashboard-assignment-economic"></div>
     <div class="dashboard-assignment-actions">
@@ -1542,14 +1575,16 @@ function saveDashboardAssignmentEdit(){
   if(!protectedPermission("modificare l'assegnazione"))return;
   const p=current.p;
   const price=Number($("#dashAssignPrice")?.value||0);
-  if(!Number.isInteger(price)||price<1){alert("Inserisci un prezzo valido.");return;}
+  const minBid=configuredMinBid();
+  if(!Number.isInteger(price)||price<minBid){alert(`Inserisci un prezzo valido (minimo ${minBid}).`);return;}
   const teamKey=$("#dashAssignTeam")?.value||"__mine__";
   const target=dashboardAssignmentTargetTeam(teamKey);
   if(target){
     const clubCount=teamClubCount(target,p.club,p.id);
-    if(clubCount>=5){alert(clubLimitMessage(target,p));return;}
+    const clubLimit=configuredClubLimit();
+    if(clubLimit&&clubCount>=clubLimit){alert(clubLimitMessage(target,p));return;}
     const econ=teamEconomy(target,p.id);
-    if(price>econ.maxNext){alert(`${target.isMine?"La tua squadra":target.name} può spendere al massimo ${econ.maxNext} crediti su questa assegnazione, conservando 1 credito per ogni slot successivo.`);return;}
+    if(price>econ.maxNext){alert(`${target.isMine?"La tua squadra":target.name} può spendere al massimo ${econ.maxNext} crediti su questa assegnazione, conservando ${configuredReservePerSlot()} crediti per ogni slot successivo.`);return;}
   }
   const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates();
   const oldTeam=current.mine?(current.team?.name||"La mia squadra"):(current.team?.name||"Non assegnato");
@@ -1583,20 +1618,21 @@ window.cancelDashboardAssignment=cancelDashboardAssignment;
 function renderDashboard(){
   invalidateAuctionIntel();
   const intel=getAuctionIntel();
-  const bought=purchasedPlayers(), s=spent(), rem=DEFAULT_BUDGET-s;
-  const st=activeStrategy(), budgets=st.budgets, rec=strategyRecommendation(bought,intel);
+  const bought=purchasedPlayers(),rosterTotal=configuredRosterTotal(),goalkeeperTarget=configuredGoalkeepers(),movementTarget=Math.max(0,rosterTotal-goalkeeperTarget),clubLimit=configuredClubLimit(),reservePerSlot=configuredReservePerSlot();
+  const st=activeStrategy(),budgets=scaledStrategyBudgets(st),rec=strategyRecommendation(bought,intel);
   const byRep={POR:0,DIF:0,CEN:0,ATT:0};
   bought.forEach(p=>byRep[p.reparto]+=Number(state.purchases[p.id].price||0));
 
-  const u23=bought.filter(isU23Player).length;
-  const u21=bought.filter(isU21Player).length;
+  const u23Rule=configuredUnderRule("u23"),u21Rule=configuredUnderRule("u21"),u23=bought.filter(p=>playerMatchesUnderRule(p,u23Rule)).length,u21=bought.filter(p=>playerMatchesUnderRule(p,u21Rule)).length;
+  const u23Min=u23Rule?.enabled?Number(u23Rule.min)||0:0,u21Min=u21Rule?.enabled?Number(u21Rule.min)||0:0;
   const porCount=bought.filter(p=>p.reparto==="POR").length;
   const movCount=bought.length-porCount;
   const mineEcon=teamEconomy(mineTeam());
+  const rem=mineEcon.remaining;
   const currentPhase=AUCTION_PHASES[phaseIndex()];
   const nextPhase=AUCTION_PHASES[phaseIndex()+1]||null;
   const leader=intel.economy[0];
-  const clubAlerts=SERIES_A_CLUBS.map(([code])=>[code,countClub(code)]).filter(([,count])=>count>5);
+  const clubAlerts=clubLimit?SERIES_A_CLUBS.map(([code])=>[code,countClub(code)]).filter(([,count])=>count>clubLimit):[];
   // v1.45.4 — ultimi 5 movimenti di tutta l'asta, non solo della mia rosa.
   const recent=auctionTransactions().slice().sort((a,b)=>(b.at||0)-(a.at||0)).slice(0,5);
   const scarcityOrder=["Dd","Ds","Dc","MC","T","WA","APc","Pc"];
@@ -1607,11 +1643,11 @@ function renderDashboard(){
   const watchCount=allPlayers.filter(p=>isWatchlisted(p.id)&&isMarketEligiblePlayer(p)&&!state.purchases[p.id]&&!state.sold[p.id]).length;
 
   let alerts=[];
-  if(bought.length>25) alerts.push(`Rosa oltre limite: ${bought.length}/25`);
-  if(porCount>3) alerts.push(`Portieri oltre limite: ${porCount}/3`);
-  if(movCount>22) alerts.push(`Movimento oltre limite: ${movCount}/22`);
-  if(clubAlerts.length) alerts.push("Club oltre 5: "+clubAlerts.map(([c,n])=>`${c} ${n}/5`).join(", "));
-  if(mineEcon.remaining<mineEcon.minimumToFinish) alerts.push(`Crediti insufficienti per chiudere ${mineEcon.missing} slot a 1`);
+  if(bought.length>rosterTotal) alerts.push(`Rosa oltre limite: ${bought.length}/${rosterTotal}`);
+  if(porCount>goalkeeperTarget) alerts.push(`Portieri oltre limite: ${porCount}/${goalkeeperTarget}`);
+  if(movCount>movementTarget) alerts.push(`Movimento oltre limite: ${movCount}/${movementTarget}`);
+  if(clubAlerts.length) alerts.push(`Club oltre ${clubLimit}: `+clubAlerts.map(([c,n])=>`${c} ${n}/${clubLimit}`).join(", "));
+  if(mineEcon.remaining<mineEcon.minimumToFinish) alerts.push(`Crediti insufficienti per chiudere ${mineEcon.missing} slot con riserva ${reservePerSlot}`);
 
   const repLabel={POR:"Portieri",DIF:"Difensori",CEN:"Centrocampisti",ATT:"Attaccanti"};
   const repCards=["POR","DIF","CEN","ATT"].map(rep=>{
@@ -1650,9 +1686,9 @@ function renderDashboard(){
 
       <section class="finance-kpis">
         <div class="finance-kpi finance-kpi-primary"><span>BUDGET RESIDUO</span><strong>${fmt(rem)}</strong><small>CREDITI</small></div>
-        <div class="finance-kpi"><span>ROSA</span><strong>${bought.length}<em>/25</em></strong><small>${porCount} POR · ${movCount} MOV.</small></div>
-        <div class="finance-kpi ${u23>=2?"ok":"warn"}"><span>U23</span><strong>${u23}<em>/2</em></strong><small>REQUISITO · nati dal ${YOUTH_RULES_2627.u23MinBirthYear}</small></div>
-        <div class="finance-kpi ${u21>=1?"ok":"warn"}"><span>U21</span><strong>${u21}<em>/1</em></strong><small>REQUISITO · nati dal ${YOUTH_RULES_2627.u21MinBirthYear}</small></div>
+        <div class="finance-kpi"><span>ROSA</span><strong>${bought.length}<em>/${rosterTotal}</em></strong><small>${porCount} POR · ${movCount} MOV.</small></div>
+        <div class="finance-kpi ${u23>=u23Min?"ok":"warn"}"><span>U23</span><strong>${u23}<em>/${u23Min}</em></strong><small>${u23Rule?.enabled?`REQUISITO · nati dal ${u23Rule.birthYearFrom}`:"DISATTIVATO"}</small></div>
+        <div class="finance-kpi ${u21>=u21Min?"ok":"warn"}"><span>U21</span><strong>${u21}<em>/${u21Min}</em></strong><small>${u21Rule?.enabled?`REQUISITO · nati dal ${u21Rule.birthYearFrom}`:"DISATTIVATO"}</small></div>
       </section>
 
       <section class="finance-panel finance-budget-panel">
@@ -1679,12 +1715,12 @@ function renderDashboard(){
             <div class="finance-league-row ${e.team.isMine?"mine":""} ${i===0?"leader":""}">
               <b class="finance-league-rank">${i+1}</b>
               <span class="finance-league-team"><strong>${esc(e.team.name)}</strong>${e.team.isMine?'<small class="finance-mine-label">MIA SQUADRA</small>':''}</span>
-              <span class="finance-league-roster"><strong>${e.items.length}<em>/25</em></strong><small>giocatori</small></span>
+              <span class="finance-league-roster"><strong>${e.items.length}<em>/${rosterTotal}</em></strong><small>giocatori</small></span>
               <span class="finance-league-credit"><strong>${fmt(e.remaining)}</strong><small>crediti</small></span>
             </div>`).join("")}</div>`:`<div class="finance-empty">Crea una lega per il confronto avversari.</div>`}
         </div>
         <div class="finance-panel finance-club-panel">
-          <div class="finance-panel-title"><b>GIOCATORI PER CLUB</b><span>quota massima 5</span></div>
+          <div class="finance-panel-title"><b>GIOCATORI PER CLUB</b><span>${clubLimit?`quota massima ${clubLimit}`:"nessun limite"}</span></div>
           ${clubCounterHTML(bought)}
         </div>
       </section>
@@ -1706,7 +1742,7 @@ function renderDashboard(){
           ${dataFreshnessHTML()}
           ${listoneDashboardBadgeHTML()}
           ${watchlistDashboardHTML()}
-          <button class="final-report-launch" onclick="openFinalReport()"><span>REPORT ASTA</span><b>${bought.length===25?"Rosa completata · apri report":"Report parziale · "+bought.length+"/25"}</b><strong>›</strong></button>
+          <button class="final-report-launch" onclick="openFinalReport()"><span>REPORT ASTA</span><b>${bought.length===rosterTotal?"Rosa completata · apri report":"Report parziale · "+bought.length+"/"+rosterTotal}</b><strong>›</strong></button>
         </div>
       </details>
 
@@ -1722,6 +1758,7 @@ function renderDashboard(){
   renderPlan("#dashboardPlanContent");
 }
 function clubCounterHTML(bought){
+  const limit=configuredClubLimit();
   const counts={};
   SERIES_A_CLUBS.forEach(([code])=>counts[code]=0);
   bought.forEach(p=>{
@@ -1734,12 +1771,12 @@ function clubCounterHTML(bought){
     ${SERIES_A_CLUBS.map(([club,fullName])=>{
       const count=counts[club]||0;
       let cls="club-safe";
-      if(count>=5) cls="club-full";
-      else if(count===4) cls="club-warning";
+      if(limit&&count>=limit) cls="club-full";
+      else if(limit&&count===Math.max(1,limit-1)) cls="club-warning";
 
       return `<div class="club-tile ${cls}" title="${fullName}">
         ${kitHTML(club,'tile',fullName)}
-        <span class="club-tile-copy"><b>${club}</b><strong>${count}/5</strong></span>
+        <span class="club-tile-copy"><b>${club}</b><strong>${count}/${limit||"∞"}</strong></span>
       </div>`;
     }).join("")}
   </div>`;
@@ -1953,9 +1990,10 @@ function liveGeneralOpportunityScore(p,intel=getAuctionIntel(),ctx=null){
   if(quality<=mine.maxNext)score+=6;
   else score-=12;
   const owned=purchasedPlayers();
-  if(owned.filter(isU23Player).length<2&&isU23Player(p))score+=5;
-  if(owned.filter(isU21Player).length<1&&isU21Player(p))score+=6;
-  if(countClub(p.club)>=4)score-=6;
+  const u23Rule=configuredUnderRule("u23"),u21Rule=configuredUnderRule("u21"),u23Min=u23Rule?.enabled?Number(u23Rule.min)||0:0,u21Min=u21Rule?.enabled?Number(u21Rule.min)||0:0;
+  if(owned.filter(isU23Player).length<u23Min&&isU23Player(p))score+=5;
+  if(owned.filter(isU21Player).length<u21Min&&isU21Player(p))score+=6;
+  const clubLimit=configuredClubLimit();if(clubLimit&&countClub(p.club)>=Math.max(1,clubLimit-1))score-=6;
   return score;
 }
 function livePriorityRows(list,intel=getAuctionIntel(),recommendations=null){
@@ -2469,8 +2507,8 @@ function playerResultsInfo(list){
     ${ROLE_DETAIL_FILTERS.has(state.filter)?" · principali + compatibili":""}
     ${state.filter==="Venduti"?" · assegnati ad altre squadre":""}
     ${state.filter==="Preferiti"?" · watchlist personale":""}
-    ${state.filter==="U23"?` · nati dal ${YOUTH_RULES_2627.u23MinBirthYear}`:""}
-    ${state.filter==="U21"?` · nati dal ${YOUTH_RULES_2627.u21MinBirthYear}`:""}
+    ${state.filter==="U23"?` · nati dal ${configuredUnderRule("u23")?.birthYearFrom||YOUTH_RULES_2627.u23MinBirthYear}`:""}
+    ${state.filter==="U21"?` · nati dal ${configuredUnderRule("u21")?.birthYearFrom||YOUTH_RULES_2627.u21MinBirthYear}`:""}
     ${state.clubFilter?.length?` · ${state.clubFilter.length===1?state.clubFilter[0]:state.clubFilter.length+" squadre"}`:""}`;
 }
 
@@ -2757,7 +2795,7 @@ function openSoldDialog(id,returnContext=undefined){
     $("#soldTeamSelect").disabled=true;
     $("#soldLeagueNote").textContent="Nessuna lega creata: il giocatore sarà registrato come venduto non assegnato. Puoi creare la lega dal menu Leghe e modificarlo dopo.";
   }
-  $("#soldPriceInput").value=previous.price||"";
+  $("#soldPriceInput").min=String(configuredMinBid());$("#soldPriceInput").value=previous.price||"";
   $("#soldDialog").showModal();
   $("#soldPriceInput").focus();
   $("#soldPriceInput").select();
@@ -2794,7 +2832,7 @@ $("#soldForm").addEventListener("submit",e=>{
   e.preventDefault();
   const p=getPlayer(soldPlayerId); if(!p)return;
   const price=Number($("#soldPriceInput").value);
-  if(!Number.isInteger(price)||price<1)return;
+  if(!Number.isInteger(price)||price<configuredMinBid())return;
   const previous=state.sold[p.id]||{};
   const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),wasEdit=!!previous.price;
   const teamId=opponentTeams().length?$("#soldTeamSelect").value:"";
@@ -2802,9 +2840,10 @@ $("#soldForm").addEventListener("submit",e=>{
   if(team){
     const isExistingAssignment=!!previous.price;
     const clubCount=teamClubCount(team,p.club,isExistingAssignment?p.id:null);
-    if(clubCount>=5){alert(clubLimitMessage(team,p));return;}
+    const clubLimit=configuredClubLimit();
+    if(clubLimit&&clubCount>=clubLimit){alert(clubLimitMessage(team,p));return;}
     const econ=teamEconomy(team,p.id);
-    if(price>econ.maxNext){alert(`${team.name} può spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, altrimenti non potrebbe completare la rosa a 1 credito.`);return;}
+    if(price>econ.maxNext){alert(`${team.name} può spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, altrimenti non potrebbe completare la rosa all'offerta minima.`);return;}
   }
   state.sold[p.id]={
     at:previous.at||Date.now(),
@@ -2824,7 +2863,8 @@ $("#soldForm").addEventListener("submit",e=>{
 function startPurchase(id,returnContext=undefined){
   const p=getPlayer(id);
   if(!p || isSold(p.id)) return;
-  if(teamClubCount(mineTeam(),p.club)>=5){
+  const clubLimit=configuredClubLimit();
+  if(clubLimit&&teamClubCount(mineTeam(),p.club)>=clubLimit){
     alert(clubLimitMessage(mineTeam(),p));
     return;
   }
@@ -2834,7 +2874,7 @@ function startPurchase(id,returnContext=undefined){
   $("#playerDialog").close();
   $("#purchaseTitle").textContent="Acquista "+playerNameText(p);
   $("#confirmPurchase").textContent="Conferma";
-  $("#purchasePrice").value="";
+  $("#purchasePrice").min=String(configuredMinBid());$("#purchasePrice").value="";
   $("#purchaseSignal").textContent="";
   const econ=teamEconomy(mineTeam()),live=liveMaxForPlayer(p);
   const guide=fa2StrategyGuidanceForPlayer(p);
@@ -2853,7 +2893,7 @@ window.editPurchase=id=>{
   $("#playerDialog").close();
   $("#purchaseTitle").textContent="Modifica "+playerNameText(p);
   $("#confirmPurchase").textContent="Salva";
-  $("#purchasePrice").value=current?.price ?? "";
+  $("#purchasePrice").min=String(configuredMinBid());$("#purchasePrice").value=current?.price ?? "";
   const s=signal(p,current?.price ?? "");
   $("#purchaseSignal").className="signal "+s.c;
   $("#purchaseSignal").textContent=s.t;
@@ -2893,15 +2933,17 @@ $("#purchaseDialog").addEventListener("cancel",e=>{
 $("#purchaseForm").addEventListener("submit",e=>{
   e.preventDefault();
   const price=Number($("#purchasePrice").value);
-  if(!Number.isInteger(price) || price < 1) return;
+  const minBid=configuredMinBid();
+  if(!Number.isInteger(price) || price < minBid) return;
   const p=getPlayer(purchaseId);
   if(p && !fa2ConfirmStrategyOverride(p,price))return;
-  if(purchaseMode==="new" && p && teamClubCount(mineTeam(),p.club)>=5){
+  const clubLimit=configuredClubLimit();
+  if(purchaseMode==="new" && p && clubLimit&&teamClubCount(mineTeam(),p.club)>=clubLimit){
     alert(clubLimitMessage(mineTeam(),p));
     return;
   }
   const econ=teamEconomy(mineTeam(),purchaseMode==="edit"?purchaseId:null);
-  if(price>econ.maxNext){alert(`Puoi spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, conservando 1 credito per ogni slot successivo.`);return;}
+  if(price>econ.maxNext){alert(`Puoi spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, conservando ${configuredReservePerSlot()} crediti per ogni slot successivo.`);return;}
   const previous=state.purchases[purchaseId];
   const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),wasEdit=purchaseMode==="edit";
   state.purchases[purchaseId]={
@@ -2942,11 +2984,12 @@ function undoLastPurchase(){
 }
 
 function renderSquad(){
-  const b=purchasedPlayers();
+  const b=purchasedPlayers(),reg=currentRegulation(),rosterTotal=configuredRosterTotal();
   const econ=teamEconomy(mineTeam());
   const byRep={POR:0,DIF:0,CEN:0,ATT:0};
   b.forEach(p=>byRep[p.reparto]+=Number(state.purchases[p.id]?.price||0));
-  const quota={POR:3,DIF:8,CEN:7,ATT:7};
+  const porQuota=configuredGoalkeepers(),movementQuota=Math.max(0,rosterTotal-porQuota),difQuota=Math.round(movementQuota*8/22),cenQuota=Math.round(movementQuota*7/22);
+  const quota={POR:porQuota,DIF:difQuota,CEN:cenQuota,ATT:Math.max(0,movementQuota-difQuota-cenQuota)};
   const groupRows=rep=>{
     const rows=b.filter(p=>p.reparto===rep);
     if(!rows.length)return `<div class="hybrid-empty-roster"><span>＋</span><small>${rep==='ATT'?'Attaccanti ancora da acquistare':'Nessun giocatore acquistato'}</small></div>`;
@@ -2955,9 +2998,9 @@ function renderSquad(){
   const counts={POR:0,DIF:0,CEN:0,ATT:0};b.forEach(p=>counts[p.reparto]++);
   const outOfListoneOwned=b.filter(p=>p.outOfListone).length;
   $("#squadView").innerHTML=`
-    <div class="hybrid-page-head"><div><div class="eyebrow">La tua rosa</div><h2>Rosa Mantra</h2></div><span>25 posti</span></div>
+    <div class="hybrid-page-head"><div><div class="eyebrow">La tua rosa</div><h2>Rosa ${reg.gameMode==="classic"?"Classic":"Mantra"}</h2></div><span>${rosterTotal} posti</span></div>
     <div class="hybrid-squad-kpis">
-      <div><span>Speso</span><b>${fmt(econ.spent)}</b></div><div><span>Residuo</span><b>${fmt(econ.remaining)}</b></div><div><span>Posti</span><b>${b.length}/25</b></div><div><span>MAX prossimo</span><b>${fmt(econ.maxNext)}</b></div>
+      <div><span>Speso</span><b>${fmt(econ.spent)}</b></div><div><span>Residuo</span><b>${fmt(econ.remaining)}</b></div><div><span>Posti</span><b>${b.length}/${rosterTotal}</b></div><div><span>MAX prossimo</span><b>${fmt(econ.maxNext)}</b></div>
     </div>
     <div class="hybrid-squad-reps">${["POR","DIF","CEN","ATT"].map(rep=>`<div><span>${rep}</span><b>${fmt(byRep[rep])}</b></div>`).join("")}</div>
     <div class="hybrid-squad-strategy">
@@ -2985,7 +3028,7 @@ function renderPlan(targetSelector="#dashboardPlanContent"){
     roleCounts[r]=allPlayers.filter(p=>roleTokens(p.role).includes(r)).length;
   });
 
-  const budgetText=Object.values(st.budgets).map(fmt).join(" · ");
+  const strategyBudgets=scaledStrategyBudgets(st),budgetText=Object.values(strategyBudgets).map(fmt).join(" · ");
 
   target.innerHTML=`
     <div class="section-title"><h2>Doppia strategia Mantra</h2></div>
@@ -3016,11 +3059,11 @@ function renderPlan(targetSelector="#dashboardPlanContent"){
 
     <div class="section-title"><h2>Budget ${state.strategy}</h2></div>
     <div class="card">
-      <div class="line"><span>POR</span><b>${fmt(st.budgets.POR)}</b></div>
-      <div class="line"><span>DIF</span><b>${fmt(st.budgets.DIF)}</b></div>
-      <div class="line"><span>CEN / trequarti</span><b>${fmt(st.budgets.CEN)}</b></div>
-      <div class="line"><span>ATT</span><b>${fmt(st.budgets.ATT)}</b></div>
-      <div class="line"><span>Totale</span><b>${fmt(DEFAULT_BUDGET)}</b></div>
+      <div class="line"><span>POR</span><b>${fmt(strategyBudgets.POR)}</b></div>
+      <div class="line"><span>DIF</span><b>${fmt(strategyBudgets.DIF)}</b></div>
+      <div class="line"><span>CEN / trequarti</span><b>${fmt(strategyBudgets.CEN)}</b></div>
+      <div class="line"><span>ATT</span><b>${fmt(strategyBudgets.ATT)}</b></div>
+      <div class="line"><span>Totale</span><b>${fmt(configuredBudget())}</b></div>
     </div>
 
     <div class="section-title"><h2>Priorità ${st.module}</h2></div>
@@ -3029,7 +3072,7 @@ function renderPlan(targetSelector="#dashboardPlanContent"){
       <div class="line"><span>Centrocampo</span><b>M/C · M · C</b></div>
       <div class="line"><span>Zona offensiva</span><b>${st.priority}</b></div>
       <div class="line"><span>Profondità target</span><b>${st.depth}</b></div>
-      <div class="line"><span>Struttura rosa</span><b>3 POR · 8 DIF · 7 CEN · 7 ATT</b></div>
+      <div class="line"><span>Struttura rosa</span><b>${configuredGoalkeepers()} POR · ${Math.max(0,configuredRosterTotal()-configuredGoalkeepers())} movimento</b></div>
     </div>
 
     <div class="section-title"><h2>XI coperto dalla tua rosa</h2><span class="muted">${lineup.filled}/11</span></div>
@@ -3132,7 +3175,7 @@ function renderLeagues(){
     return;
   }
 
-  const league=state.league;
+  const league=state.league,rosterTotal=configuredRosterTotal();
   const intel=getAuctionIntel();
   const leader=intel.economy[0];
   const unassigned=soldPlayers().filter(p=>!state.sold[p.id]?.teamId || (state.sold[p.id]?.leagueId && state.sold[p.id]?.leagueId!==league.id));
@@ -3176,7 +3219,7 @@ function renderLeagues(){
         return `<details class="league-team-card intelligence-team-card ${isLeader?"credit-leader-card":""}" ${team.isMine?"open":""}>
           <summary>
             <div><b>${isLeader?"TOP ":""}${esc(team.name)}</b>${team.isMine?'<span class="mine-badge">MIA</span>':''}${isLeader?'<span class="leader-badge">LEADER CREDITI</span>':''}</div>
-            <span>${econ.items.length}/25 · ${fmt(econ.remaining)} cr · MAX ${fmt(econ.maxNext)}</span>
+            <span>${econ.items.length}/${rosterTotal} · ${fmt(econ.remaining)} cr · MAX ${fmt(econ.maxNext)}</span>
           </summary>
           <div class="league-roster-body">
             <div class="team-economy-grid">
@@ -3217,43 +3260,71 @@ function renderLeagues(){
 }
 
 function fa2RegUnderRow(reg,id,label){
-  const rule=(reg.underRules||[]).find(x=>x.id===id)||{id,label,enabled:false,min:0,birthYearFrom:id==="u21"?2005:2003};
-  return `<div class="fa2-reg-under-row"><label class="fa2-check"><input id="fa2_${id}_enabled" type="checkbox" ${rule.enabled?"checked":""}><span>${label}</span></label><label>Minimo<input id="fa2_${id}_min" type="number" min="0" max="${reg.roster.total}" value="${Number(rule.min)||0}"></label><label>Nati dal<input id="fa2_${id}_year" type="number" min="1900" max="2100" value="${Number(rule.birthYearFrom)||0}"></label></div>`;
+  const rule=(reg.underRules||[]).find(x=>x.id===id)||{id,label,enabled:false,min:0,maxAge:id==="u21"?21:23,birthYearFrom:id==="u21"?2005:2003};
+  const ages=[20,21,22,23].map(age=>`<option value="${age}" ${Number(rule.maxAge)===age?"selected":""}>U${age}</option>`).join("");
+  return `<div class="fa2-reg-under-row"><label class="fa2-check"><input id="fa2_${id}_enabled" type="checkbox" ${rule.enabled?"checked":""}><span>${label} attivo</span></label><label>Età massima<select id="fa2_${id}_age">${ages}</select></label><label>Minimo<input id="fa2_${id}_min" type="number" min="0" max="${reg.roster.total}" value="${Number(rule.min)||0}"></label><div class="fa2-reg-derived"><span>Nati dal</span><b>${Number(rule.birthYearFrom)||"—"}</b></div></div>`;
+}
+const FA2_REG_BONUS_FIELDS=[
+  ["goal","Gol segnato"],["goalAgainst","Gol subito"],["penaltyScored","Rigore segnato"],["penaltyMissed","Rigore sbagliato"],["penaltySaved","Rigore parato"],
+  ["yellow","Ammonizione"],["red","Espulsione"],["assistStandard","Assist standard"],["assistSoft","Assist soft"],["assistGold","Assist gold"],
+  ["ownGoal","Autogol"],["equalizer","Gol pareggio"],["winner","Gol vittoria"],["cleanSheet","Porta inviolata"],["playerOfMatch","Player of the match"]
+];
+function fa2RegBonusGrid(reg){
+  return `<div class="fa2-reg-grid fa2-reg-bonus-grid">${FA2_REG_BONUS_FIELDS.map(([key,label])=>`<label>${label}<input id="fa2Bonus_${key}" type="number" step="0.5" value="${Number(reg.scoring.bonuses[key])||0}"></label>`).join("")}</div>`;
+}
+function fa2RegDFactorBands(reg){
+  const labels=["< 6","6 – 6,24","6,25 – 6,49","6,50 – 6,74","6,75 – 6,99","≥ 7"];
+  return `<div class="fa2-reg-band-grid">${(reg.modifiers.dFactor.bands||[]).map((band,index)=>`<div class="fa2-reg-band"><b>${labels[index]||`Fascia ${index+1}`}</b><div>${band.gte===undefined?'<span>Da −∞</span>':`<label>Da<input data-fa2-dfactor-field="gte" data-fa2-dfactor-index="${index}" type="number" step="0.01" value="${Number(band.gte)||0}"></label>`}${band.lt===undefined?'<span>A +∞</span>':`<label>A &lt;<input data-fa2-dfactor-field="lt" data-fa2-dfactor-index="${index}" type="number" step="0.01" value="${Number(band.lt)||0}"></label>`}<label>Bonus<input data-fa2-dfactor-field="value" data-fa2-dfactor-index="${index}" type="number" step="0.5" value="${Number(band.value)||0}"></label></div></div>`).join("")}</div>`;
+}
+function fa2RegStudioSection(title,summary,content,open=false){
+  return `<details class="fa2-reg-studio-section" ${open?"open":""}><summary><span>${title}</span><small>${summary}</small></summary><div class="fa2-reg-studio-body">${content}</div></details>`;
 }
 function fa2RegulationCard(){
   if(!window.FA2Regulation)return "";
   const reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
-  return `<div class="card fa2-reg-settings-card"><div class="fa2-reg-settings-head"><div><span>FANTAASTA2.0 · REGULATION ENGINE</span><h3>Regolamento v2</h3><p>Queste regole alimentano il nuovo Strategy Engine. La vecchia Asta Live A/B resta separata durante l'alpha.</p></div><b>α2</b></div>
-    <div class="fa2-reg-mini"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
-    <details id="fa2RegDetails" class="fa2-reg-details"><summary>Modifica regolamento</summary>
-      <div class="fa2-reg-section"><b>Lega e asta</b><div class="fa2-reg-grid">
-        <label>Disponibilità<select id="fa2RegAvailability"><option value="single" ${reg.availability==="single"?"selected":""}>Singola</option><option value="multiple" ${reg.availability==="multiple"?"selected":""}>Multipla</option></select></label>
-        <label>Modalità<select id="fa2RegMode"><option value="mantra" ${reg.gameMode==="mantra"?"selected":""}>Mantra</option><option value="classic" ${reg.gameMode==="classic"?"selected":""}>Classic</option></select></label>
-        <label>Crediti<input id="fa2RegBudget" type="number" min="1" value="${reg.budget.initial}"></label>
-        <label>Limite stesso club<input id="fa2RegClub" type="number" min="0" value="${reg.roster.clubLimit}"></label>
-      </div></div>
-      <div class="fa2-reg-section"><b>Rosa</b><div class="fa2-reg-grid"><label>Totale giocatori<input id="fa2RegRoster" type="number" min="1" value="${reg.roster.total}"></label><label>Portieri<input id="fa2RegGk" type="number" min="1" value="${reg.roster.goalkeepers}"></label><label>Panchina<input id="fa2RegBench" type="number" min="0" value="${reg.bench.size}"></label><label>POR min panchina<input id="fa2RegBenchGk" type="number" min="0" value="${reg.bench.minGoalkeepers}"></label></div></div>
-      <div class="fa2-reg-section"><b>Criteri giovani</b>${fa2RegUnderRow(reg,"u23","U23")}${fa2RegUnderRow(reg,"u21","U21")}</div>
-      <div class="fa2-reg-section"><b>Formazione</b><div class="fa2-reg-grid"><label>Switch<select id="fa2RegSwitch"><option value="off" ${reg.switchMode==="off"?"selected":""}>Disattivato</option><option value="switch" ${reg.switchMode==="switch"?"selected":""}>Switch</option><option value="plus" ${reg.switchMode==="plus"?"selected":""}>Switch Plus</option></select></label><label>Timeout (min)<input id="fa2RegTimeout" type="number" min="0" value="${reg.formation.timeoutMinutes}"></label></div><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegHidden" type="checkbox" ${reg.formation.hidden?"checked":""}><span>Formazioni nascoste</span></label><label class="fa2-check"><input id="fa2RegBookedSV" type="checkbox" ${reg.scoring.bookedNoVote?"checked":""}><span>Ammonito SV = 5,5</span></label></div></div>
-      <div class="fa2-reg-section"><b>Bonus principali</b><div class="fa2-reg-grid"><label>Gol<input id="fa2BonusGoal" type="number" step="0.5" value="${reg.scoring.bonuses.goal}"></label><label>Assist standard<input id="fa2BonusAssist" type="number" step="0.5" value="${reg.scoring.bonuses.assistStandard}"></label><label>Porta inviolata<input id="fa2BonusClean" type="number" step="0.5" value="${reg.scoring.bonuses.cleanSheet}"></label><label>Ammonizione<input id="fa2BonusYellow" type="number" step="0.5" value="${reg.scoring.bonuses.yellow}"></label></div></div>
-      <div class="fa2-reg-section"><b>Modificatori</b><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegDFactor" type="checkbox" ${reg.modifiers.dFactor.enabled?"checked":""}><span>D Factor</span></label><label class="fa2-check"><input id="fa2RegDFactorGk" type="checkbox" ${reg.modifiers.dFactor.includeGoalkeeper?"checked":""}><span>D Factor include POR</span></label><label class="fa2-check"><input id="fa2RegFair" type="checkbox" ${reg.modifiers.fairplay.enabled?"checked":""}><span>Fairplay</span></label><label class="fa2-check"><input id="fa2RegCaptain" type="checkbox" ${reg.modifiers.captain.enabled?"checked":""}><span>Capitano</span></label></div></div>
+  const leagueSection=`<div class="fa2-reg-grid"><label>Nome regolamento<input id="fa2RegName" maxlength="40" value="${esc(reg.name)}"></label><label>Stagione<input id="fa2RegSeason" inputmode="numeric" maxlength="7" value="${esc(reg.season)}"></label><label>Disponibilità<select id="fa2RegAvailability"><option value="single" ${reg.availability==="single"?"selected":""}>Singola</option><option value="multiple" ${reg.availability==="multiple"?"selected":""}>Multipla</option></select></label><label>Modalità<select id="fa2RegMode"><option value="mantra" ${reg.gameMode==="mantra"?"selected":""}>Mantra</option><option value="classic" ${reg.gameMode==="classic"?"selected":""}>Classic</option></select></label><label>Crediti iniziali<input id="fa2RegBudget" type="number" min="1" value="${reg.budget.initial}"></label><label>Offerta minima<input id="fa2RegMinBid" type="number" min="1" value="${reg.budget.minBid}"></label><label>Riserva per posto<input id="fa2RegMinResidual" type="number" min="1" value="${reg.budget.minResidualPerSlot}"></label><label>Limite stesso club<input id="fa2RegClub" type="number" min="0" value="${reg.roster.clubLimit}"></label></div>`;
+  const rosterSection=`<div class="fa2-reg-grid"><label>Totale giocatori<input id="fa2RegRoster" type="number" min="1" value="${reg.roster.total}"></label><label>Portieri<input id="fa2RegGk" type="number" min="1" value="${reg.roster.goalkeepers}"></label><label>Movimento calcolati<input type="number" value="${reg.roster.movement}" disabled></label><label>Panchina<input id="fa2RegBench" type="number" min="0" value="${reg.bench.size}"></label><label>POR min panchina<input id="fa2RegBenchGk" type="number" min="0" value="${reg.bench.minGoalkeepers}"></label><label>Movimento panchina<input value="Variabili" disabled></label></div><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegRostersHidden" type="checkbox" ${reg.roster.hidden?"checked":""}><span>Rose invisibili</span></label></div>`;
+  const underSection=`<p class="fa2-reg-help">L'anno minimo viene ricalcolato dalla stagione e dall'età massima, mantenendo separati U23 e U21.</p>${fa2RegUnderRow(reg,"u23","U23")}${fa2RegUnderRow(reg,"u21","U21")}`;
+  const formationSection=`<div class="fa2-reg-grid"><label>Switch<select id="fa2RegSwitch"><option value="off" ${reg.switchMode==="off"?"selected":""}>Disattivato</option><option value="switch" ${reg.switchMode==="switch"?"selected":""}>Switch</option><option value="plus" ${reg.switchMode==="plus"?"selected":""}>Switch Plus</option></select></label><label>Timeout (min)<input id="fa2RegTimeout" type="number" min="0" value="${reg.formation.timeoutMinutes}"></label><label>Formazione non schierata<select id="fa2RegMissing"><option value="previous" selected>Recupera precedente</option></select></label></div><div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegHidden" type="checkbox" ${reg.formation.hidden?"checked":""}><span>Formazioni nascoste</span></label><label class="fa2-check"><input id="fa2RegBookedSV" type="checkbox" ${reg.scoring.bookedNoVote?"checked":""}><span>Ammonito SV = voto 5,5</span></label></div>`;
+  const scoringSection=`<div class="fa2-reg-grid"><label>Fonte voti<select id="fa2RegScoreSource"><option value="fantacalcio" ${reg.scoring.source==="fantacalcio"?"selected":""}>Fantacalcio</option><option value="italia" ${reg.scoring.source==="italia"?"selected":""}>Italia</option><option value="statistical" ${reg.scoring.source==="statistical"?"selected":""}>Statistico (Alvin 482)</option></select></label></div><p class="fa2-reg-help">Le statistiche disponibili modificano TARGET, alternative e valore dei profili; i dati mancanti restano neutrali.</p>${fa2RegBonusGrid(reg)}`;
+  const thresholdSection=`<div class="fa2-reg-grid"><label>Soglia primo gol<input id="fa2RegFirstGoal" type="number" step="0.5" value="${reg.scoring.goalThreshold.firstGoal}"></label><label>Punti per fascia<input id="fa2RegGoalStep" type="number" min="0.5" step="0.5" value="${reg.scoring.goalThreshold.step}"></label></div><div class="fa2-reg-condition-grid"><div><label class="fa2-check"><input id="fa2RegLimitWin" type="checkbox" ${reg.scoring.limitWin.enabled?"checked":""}><span>Limita vittoria</span></label><label>Differenza ≤<input id="fa2RegLimitWinDelta" type="number" min="0" step="0.5" value="${reg.scoring.limitWin.delta}"></label></div><div><label class="fa2-check"><input id="fa2RegLimitDraw" type="checkbox" ${reg.scoring.limitDraw.enabled?"checked":""}><span>Limita pareggio</span></label><label>Differenza ≥<input id="fa2RegLimitDrawDelta" type="number" min="0" step="0.5" value="${reg.scoring.limitDraw.delta}"></label></div><div><label class="fa2-check"><input id="fa2RegAutoGoal" type="checkbox" ${reg.scoring.autoGoal.enabled?"checked":""}><span>Autogol avversario</span></label><label>Soglia<input id="fa2RegAutoGoalThreshold" type="number" min="0" step="0.5" value="${reg.scoring.autoGoal.threshold}"></label></div></div>`;
+  const modifiersSection=`<div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegDFactor" type="checkbox" ${reg.modifiers.dFactor.enabled?"checked":""}><span>D Factor</span></label><label class="fa2-check"><input id="fa2RegDFactorGk" type="checkbox" ${reg.modifiers.dFactor.includeGoalkeeper?"checked":""}><span>Include portiere</span></label></div><div class="fa2-reg-grid"><label>Preset D Factor<select id="fa2RegDFactorPreset"><option value="recommended" ${reg.modifiers.dFactor.preset==="recommended"?"selected":""}>Consigliata</option><option value="custom" ${reg.modifiers.dFactor.preset==="custom"?"selected":""}>Personalizzata</option></select></label><label>Applica a<select id="fa2RegDFactorApply"><option value="own" ${reg.modifiers.dFactor.applyTo==="own"?"selected":""}>Propria squadra</option><option value="opponent" ${reg.modifiers.dFactor.applyTo==="opponent"?"selected":""}>Avversario</option></select></label></div>${fa2RegDFactorBands(reg)}<div class="fa2-reg-toggle-grid"><label class="fa2-check"><input id="fa2RegPerformance" type="checkbox" ${reg.modifiers.performance.enabled?"checked":""}><span>Fattore rendimento</span></label><label class="fa2-check"><input id="fa2RegFair" type="checkbox" ${reg.modifiers.fairplay.enabled?"checked":""}><span>Fattore fairplay</span></label><label class="fa2-check"><input id="fa2RegCaptain" type="checkbox" ${reg.modifiers.captain.enabled?"checked":""}><span>Fattore capitano</span></label><label>Bonus fairplay<input id="fa2RegFairBonus" type="number" step="0.5" value="${reg.modifiers.fairplay.bonus}"></label></div><div class="fa2-reg-pending"><b>Specifiche ancora mancanti</b><span>Soglie dettagliate di Fattore rendimento, Capitano e competizioni F1 non vengono inventate. I toggle sono salvati; l'asta usa soltanto affidabilità e voto storico.</span></div>`;
+  return `<div class="card fa2-reg-settings-card"><div class="fa2-reg-settings-head"><div><span>FANTAASTA2.0 · REGULATION STUDIO</span><h3>Regolamento A4</h3><p>Un'unica configurazione alimenta Strategy Engine, budget e Asta Live. La migrazione conserva automaticamente il profilo v2.</p></div><b>α4</b></div>
+    <div class="fa2-reg-mini"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Gol</span><b>${sum.goalBands}</b></div></div>
+    <details id="fa2RegDetails" class="fa2-reg-details"><summary>Apri Regulation Studio</summary><div class="fa2-reg-studio">
+      ${fa2RegStudioSection("Lega e asta",`${sum.availability} · ${sum.mode}`,leagueSection,true)}
+      ${fa2RegStudioSection("Rosa e panchina",sum.roster,rosterSection)}
+      ${fa2RegStudioSection("Under",sum.under,underSection)}
+      ${fa2RegStudioSection("Switch e formazione",String(sum.switchMode).toUpperCase(),formationSection)}
+      ${fa2RegStudioSection("Calcolo e bonus/malus",sum.scoringSource,scoringSection)}
+      ${fa2RegStudioSection("Soglie e risultati",sum.goalBands,thresholdSection)}
+      ${fa2RegStudioSection("Modificatori",sum.modifiers,modifiersSection)}
       <div class="fa2-reg-actions"><button id="fa2RegReset" class="ghost" type="button">Ripristina preset</button><button id="fa2RegSave" class="primary" type="button">SALVA REGOLAMENTO</button></div>
-    </details><button id="fa2OpenStrategy" class="ghost fa2-open-strategy" type="button">Apri Strategy Lab</button></div>`;
+    </div></details><button id="fa2OpenStrategy" class="ghost fa2-open-strategy" type="button">Apri Strategy Lab</button></div>`;
 }
 function fa2ReadNumber(id,fallback=0){const el=$(id);const n=Number(el?.value);return Number.isFinite(n)?n:fallback}
 function fa2BindRegulationSettings(){
   if(!window.FA2Regulation||!$("#fa2RegSave"))return;
   $("#fa2OpenStrategy").onclick=()=>switchView("strategyView");
   $("#fa2RegReset").onclick=()=>{if(confirm("Ripristinare il preset 'La mia lega'?")){FA2Regulation.reset();sessionStorage.removeItem("fa2_strategy_result_v35");renderSettings()}};
+  const syncDFactorPreset=()=>{$$("[data-fa2-dfactor-field]").forEach(input=>{input.disabled=$("#fa2RegDFactorPreset").value!=="custom"})};
+  $("#fa2RegDFactorPreset").onchange=syncDFactorPreset;syncDFactorPreset();
   $("#fa2RegSave").onclick=()=>{
     const old=FA2Regulation.load(),reg=FA2Regulation.load();
+    reg.name=$("#fa2RegName").value.trim()||old.name;reg.season=$("#fa2RegSeason").value.trim()||old.season;
     reg.availability=$("#fa2RegAvailability").value;reg.gameMode=$("#fa2RegMode").value;reg.switchMode=$("#fa2RegSwitch").value;
-    reg.budget.initial=fa2ReadNumber("#fa2RegBudget",old.budget.initial);reg.roster.total=fa2ReadNumber("#fa2RegRoster",old.roster.total);reg.roster.goalkeepers=fa2ReadNumber("#fa2RegGk",old.roster.goalkeepers);reg.roster.clubLimit=fa2ReadNumber("#fa2RegClub",old.roster.clubLimit);
-    reg.bench.size=fa2ReadNumber("#fa2RegBench",old.bench.size);reg.bench.minGoalkeepers=fa2ReadNumber("#fa2RegBenchGk",old.bench.minGoalkeepers);reg.formation.timeoutMinutes=fa2ReadNumber("#fa2RegTimeout",old.formation.timeoutMinutes);reg.formation.hidden=$("#fa2RegHidden").checked;reg.scoring.bookedNoVote=$("#fa2RegBookedSV").checked;
-    ["u23","u21"].forEach(id=>{let r=(reg.underRules||[]).find(x=>x.id===id);if(!r){r={id,label:id.toUpperCase()};reg.underRules.push(r)}r.enabled=$("#fa2_"+id+"_enabled").checked;r.min=fa2ReadNumber("#fa2_"+id+"_min",0);r.birthYearFrom=fa2ReadNumber("#fa2_"+id+"_year",id==="u21"?2005:2003)});
-    reg.scoring.bonuses.goal=fa2ReadNumber("#fa2BonusGoal",old.scoring.bonuses.goal);reg.scoring.bonuses.assistStandard=fa2ReadNumber("#fa2BonusAssist",old.scoring.bonuses.assistStandard);reg.scoring.bonuses.cleanSheet=fa2ReadNumber("#fa2BonusClean",old.scoring.bonuses.cleanSheet);reg.scoring.bonuses.yellow=fa2ReadNumber("#fa2BonusYellow",old.scoring.bonuses.yellow);
-    reg.modifiers.dFactor.enabled=$("#fa2RegDFactor").checked;reg.modifiers.dFactor.includeGoalkeeper=$("#fa2RegDFactorGk").checked;reg.modifiers.fairplay.enabled=$("#fa2RegFair").checked;reg.modifiers.captain.enabled=$("#fa2RegCaptain").checked;
-    const structural=old.budget.initial!==reg.budget.initial||old.roster.total!==reg.roster.total||old.roster.goalkeepers!==reg.roster.goalkeepers||old.availability!==reg.availability;
+    reg.budget.initial=fa2ReadNumber("#fa2RegBudget",old.budget.initial);reg.budget.minBid=fa2ReadNumber("#fa2RegMinBid",old.budget.minBid);reg.budget.minResidualPerSlot=fa2ReadNumber("#fa2RegMinResidual",old.budget.minResidualPerSlot);
+    reg.roster.total=fa2ReadNumber("#fa2RegRoster",old.roster.total);reg.roster.goalkeepers=fa2ReadNumber("#fa2RegGk",old.roster.goalkeepers);reg.roster.clubLimit=fa2ReadNumber("#fa2RegClub",old.roster.clubLimit);reg.roster.hidden=$("#fa2RegRostersHidden").checked;
+    reg.bench.size=fa2ReadNumber("#fa2RegBench",old.bench.size);reg.bench.minGoalkeepers=fa2ReadNumber("#fa2RegBenchGk",old.bench.minGoalkeepers);reg.formation.timeoutMinutes=fa2ReadNumber("#fa2RegTimeout",old.formation.timeoutMinutes);reg.formation.hidden=$("#fa2RegHidden").checked;reg.formation.missingLineup="previous";reg.scoring.bookedNoVote=$("#fa2RegBookedSV").checked;
+    const seasonStart=FA2Regulation.seasonStartYear(reg.season);
+    ["u23","u21"].forEach(id=>{let r=(reg.underRules||[]).find(x=>x.id===id);if(!r){r={id,label:id.toUpperCase()};reg.underRules.push(r)}r.enabled=$("#fa2_"+id+"_enabled").checked;r.maxAge=fa2ReadNumber("#fa2_"+id+"_age",id==="u21"?21:23);r.min=fa2ReadNumber("#fa2_"+id+"_min",0);r.birthYearFrom=seasonStart-r.maxAge});
+    reg.scoring.source=$("#fa2RegScoreSource").value;FA2_REG_BONUS_FIELDS.forEach(([key])=>{reg.scoring.bonuses[key]=fa2ReadNumber("#fa2Bonus_"+key,old.scoring.bonuses[key])});
+    reg.scoring.goalThreshold.firstGoal=fa2ReadNumber("#fa2RegFirstGoal",old.scoring.goalThreshold.firstGoal);reg.scoring.goalThreshold.step=fa2ReadNumber("#fa2RegGoalStep",old.scoring.goalThreshold.step);
+    reg.scoring.limitWin.enabled=$("#fa2RegLimitWin").checked;reg.scoring.limitWin.delta=fa2ReadNumber("#fa2RegLimitWinDelta",old.scoring.limitWin.delta);reg.scoring.limitDraw.enabled=$("#fa2RegLimitDraw").checked;reg.scoring.limitDraw.delta=fa2ReadNumber("#fa2RegLimitDrawDelta",old.scoring.limitDraw.delta);reg.scoring.autoGoal.enabled=$("#fa2RegAutoGoal").checked;reg.scoring.autoGoal.threshold=fa2ReadNumber("#fa2RegAutoGoalThreshold",old.scoring.autoGoal.threshold);
+    reg.modifiers.dFactor.enabled=$("#fa2RegDFactor").checked;reg.modifiers.dFactor.includeGoalkeeper=$("#fa2RegDFactorGk").checked;reg.modifiers.dFactor.preset=$("#fa2RegDFactorPreset").value;reg.modifiers.dFactor.applyTo=$("#fa2RegDFactorApply").value;
+    if(reg.modifiers.dFactor.preset==="recommended")reg.modifiers.dFactor.bands=FA2Regulation.DEFAULT_BANDS;else $$('[data-fa2-dfactor-field]').forEach(input=>{const index=Number(input.dataset.fa2DfactorIndex),field=input.dataset.fa2DfactorField;if(reg.modifiers.dFactor.bands[index]&&["gte","lt","value"].includes(field))reg.modifiers.dFactor.bands[index][field]=Number(input.value)||0});
+    reg.modifiers.performance.enabled=$("#fa2RegPerformance").checked;reg.modifiers.fairplay.enabled=$("#fa2RegFair").checked;reg.modifiers.fairplay.bonus=fa2ReadNumber("#fa2RegFairBonus",old.modifiers.fairplay.bonus);reg.modifiers.captain.enabled=$("#fa2RegCaptain").checked;
+    const structural=old.budget.initial!==reg.budget.initial||old.budget.minBid!==reg.budget.minBid||old.budget.minResidualPerSlot!==reg.budget.minResidualPerSlot||old.roster.total!==reg.roster.total||old.roster.goalkeepers!==reg.roster.goalkeepers||old.roster.clubLimit!==reg.roster.clubLimit||old.availability!==reg.availability||old.gameMode!==reg.gameMode;
     if(structural&&currentAssignmentCount()>0&&!confirm("L'asta contiene già assegnazioni. Salvare comunque le nuove regole? I dati esistenti non verranno cancellati."))return;
     FA2Regulation.save(reg);sessionStorage.removeItem("fa2_strategy_result_v35");renderSettings();
   };
@@ -3294,9 +3365,10 @@ function renderSettings(){
   };
   $("#exportBtn").onclick=()=>{
     const backupActionCount=getBackupActionCount();
-    let blob=new Blob([JSON.stringify({version:9,purchases:state.purchases,sold:state.sold,strategy:state.strategy,poolMode:state.poolMode,league:state.league,auctionPhase:state.auctionPhase,listoneSync:appliedListoneSync,watchlist:state.watchlist,protectedMode:state.protectedMode,operationLog:state.operationLog,snapshots:state.snapshots,backupActionCount},null,2)],{type:"application/json"});
+    const regulation=window.FA2Regulation?.load?.()||null,strategyPlan=fa2LoadPurchasePlan();
+    let blob=new Blob([JSON.stringify({version:10,purchases:state.purchases,sold:state.sold,strategy:state.strategy,poolMode:state.poolMode,league:state.league,auctionPhase:state.auctionPhase,listoneSync:appliedListoneSync,watchlist:state.watchlist,protectedMode:state.protectedMode,operationLog:state.operationLog,snapshots:state.snapshots,backupActionCount,regulation,strategyPlan},null,2)],{type:"application/json"});
     const backupUrl=URL.createObjectURL(blob);
-    let a=document.createElement("a");a.href=backupUrl;a.download="AstaMantra-backup-v9.json";document.body.appendChild(a);a.click();a.remove();
+    let a=document.createElement("a");a.href=backupUrl;a.download="AstaMantra-backup-v10.json";document.body.appendChild(a);a.click();a.remove();
     if(document.activeElement instanceof HTMLElement)document.activeElement.blur();
     markExternalBackupDone();
     settleIOSViewport();
@@ -3311,6 +3383,8 @@ function renderSettings(){
       if(["strategic","all"].includes(o.poolMode)){state.poolMode=o.poolMode;localStorage.setItem("fa2_pool_mode",o.poolMode)}
       if(AUCTION_PHASES.some(x=>x.id===o.auctionPhase)){state.auctionPhase=o.auctionPhase;saveAuctionPhase()}
       if(o.listoneSync?.schema===LISTONE_SYNC_SCHEMA&&Array.isArray(o.listoneSync.players)){appliedListoneSync=o.listoneSync;localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(appliedListoneSync));allPlayers=buildAllPlayers()}
+      if(o.regulation&&window.FA2Regulation?.save)FA2Regulation.save(o.regulation);
+      if(o.strategyPlan?.slots)fa2SavePurchasePlan(o.strategyPlan);
       state.watchlist=o.watchlist||{};
       if(Array.isArray(o.operationLog))state.operationLog=o.operationLog.slice(-100);
       if(Array.isArray(o.snapshots))state.snapshots=o.snapshots.slice(-8);
@@ -3371,7 +3445,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.9").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.4").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -3491,9 +3565,8 @@ function fa2RawPlanRuntimeSlots(){
 }
 let fa2LastBudgetRuntime=null;
 function fa2BuildPlanBudgetRuntime(runtimes){
-  const engine=window.FA2Strategy,rebalance=engine?.rebalanceBudget,mine=teamEconomy(mineTeam());
-  if(typeof rebalance!=="function")return {remaining:mine.remaining,missing:mine.missing,minBid:1,reserve:mine.minimumToFinish,free:mine.free,maxNext:mine.maxNext,overallInflation:0,status:"OK",slots:{},phases:{}};
-  const reg=window.FA2Regulation?.load?.(),minBid=Math.max(1,Number(reg?.budget?.minResidualPerSlot||reg?.budget?.minBid)||1);
+  const engine=window.FA2Strategy,rebalance=engine?.rebalanceBudget,mine=teamEconomy(mineTeam()),reg=currentRegulation(),minBid=configuredReservePerSlot();
+  if(typeof rebalance!=="function")return {remaining:mine.remaining,missing:mine.missing,minBid,reserve:mine.minimumToFinish,free:mine.free,maxNext:mine.maxNext,overallInflation:0,status:"OK",slots:{},phases:{}};
   const inflationCache=new Map(),inflationFor=phase=>{
     if(!inflationCache.has(phase))inflationCache.set(phase,inflationStats(p=>playerAuctionPhase(p)===phase));
     return inflationCache.get(phase);
@@ -3638,7 +3711,8 @@ function fa2StrategyGuidanceForPlayer(p){
 function fa2PlayerPlanHTML(p){
   const tags=fa2PlayerPlanMembership(p);if(!tags.length)return "";
   const plan=fa2LoadPurchasePlan(),top=tags[0],cap=Number(top.maxRecommended)||0;
-  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.9</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b>${top.dynamicBudget?`<span> · SLOT ${fmt(top.dynamicBudget)}</span>`:""}</div>`:""}</section>`;
+  const version=String(plan.version||"A3.x").replace(/^A/,"α");
+  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA ${esc(version)}</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b>${top.dynamicBudget?`<span> · SLOT ${fmt(top.dynamicBudget)}</span>`:""}</div>`:""}</section>`;
 }
 function fa2PlanCandidateName(x){const p=getPlayer(x?.id);return p?.name||x?.name||"—"}
 function fa2SavedPlanHTML(result){
@@ -3665,7 +3739,8 @@ function fa2SavedPlanHTML(result){
   }).join("");
   const covered=runtimes.filter(x=>x.state===slotStates.COVERED).length,exhausted=runtimes.filter(x=>x.state===slotStates.LOST_EXHAUSTED).length,open=Math.max(0,entries.length-covered-exhausted);
   const budgetRuntime=runtimes[0]?.budgetRuntime||fa2LastBudgetRuntime;
-  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.9</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti${exhausted?` · ${exhausted} esauriti`:""}`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${fa2BudgetRuntimeHTML(budgetRuntime)}${rows}</div>`;
+  const version=String(plan.version||"A3.x").replace(/^A/,"α");
+  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · ${esc(version)}</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti${exhausted?` · ${exhausted} esauriti`:""}`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${fa2BudgetRuntimeHTML(budgetRuntime)}${rows}</div>`;
 }
 function fa2CandidateHTML(x,badge){
   if(!x)return "";
@@ -3691,7 +3766,7 @@ function fa2OpenSlotAnalysis(slotKey){
   const altHtml=(a.alternatives||[]).map((x,i)=>fa2CandidateHTML(x,`ALT ${i+1}`)).join("");
   const valueHtml=(a.values||[]).map(x=>fa2CandidateHTML(x,"VALUE")).join("");
   $("#fa2SlotDialogContent").innerHTML=`<div class="dialog-body fa2-slot-dialog-body">
-    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.9</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
+    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α4</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
     <div class="fa2-slot-summary"><div><span>PRIORITÀ</span><b>${esc(a.priority?.label||"—")}</b></div><div><span>VALORE MINIMO</span><b>${a.minimumScore||0}/100</b></div><div><span>BUDGET BASE</span><b>${a.budget.perSlot}</b></div><div><span>SCARSITÀ</span><b>${a.summary.scarcity}</b></div><div><span>FORTI</span><b>${a.summary.strongCount}</b></div><div><span>PROFONDITÀ</span><b>${a.summary.depth}</b></div></div>
     <div class="fa2-slot-note">Il MAX strategico resta separato dal MAX LIVE.${reservedIds.size?` Per evitare conflitti, ${reservedIds.size} candidati già riservati negli altri slot sono esclusi da questa analisi.`:""}</div>
     <div class="fa2-candidate-section"><h3>TARGET</h3>${a.target?fa2CandidateHTML(a.target,"TARGET"):'<p class="muted">Nessun candidato.</p>'}</div>
@@ -3706,7 +3781,7 @@ function fa2SaveCurrentSlotPlan(){
   const {analysis:a,result,slotInstance}=current,plan=fa2LoadPurchasePlan();
   plan.primaryId=result.primary.module.id;plan.primaryName=result.primary.module.name;
   plan.secondaryId=result.secondary?.module?.id||"";plan.secondaryName=result.secondary?.module?.name||"";
-  plan.scope=result.profile?.scope||"full";plan.generatedAt=result.profile?.lastGeneratedAt||Date.now();plan.version="A3.9";plan.slots=plan.slots||{};
+  plan.scope=result.profile?.scope||"full";plan.generatedAt=result.profile?.lastGeneratedAt||Date.now();plan.version="A4";plan.slots=plan.slots||{};
   const target=fa2CandidateSnapshot(a.target,"TARGET"),alternatives=(a.alternatives||[]).map((x,i)=>fa2CandidateSnapshot(x,`ALT ${i+1}`)),values=(a.values||[]).map(x=>fa2CandidateSnapshot(x,"VALUE"));
   const slotId=slotInstance?.id||a.key,roleKey=slotInstance?.roleKey||a.key,slotIndex=slotInstance?.slotIndex||1,slotCount=slotInstance?.slotCount||1,slotLabel=slotInstance?.label||a.roles.join("/");
   plan.slots[slotId]={key:slotId,roleKey,slotIndex,slotCount,slotLabel,roles:a.roles,target,alternatives,values,targetId:String(target.id),altIds:alternatives.map(x=>x.id),valueIds:values.map(x=>x.id),maxRecommended:target.maxRecommended,minimumScore:Number(a.minimumScore)||0,budgetSlot:Number(a.budget?.perSlot)||0,priority:{score:Number(a.priority?.score)||0,label:a.priority?.label||""},updatedAt:Date.now()};
@@ -3785,9 +3860,9 @@ function renderStrategyView(){
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v35")||"null")}catch{}
   const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.9</span><h2>Strategia</h2><p>Il Module Switch Advisor confronta gli 11 moduli usando acquisti, mercato residuo e budget. Suggerisce un cambio solo oltre una soglia significativa e non modifica mai automaticamente il Piano Strategia.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · REGULATION + STRATEGY INTELLIGENCE α4</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence e Piano Strategia alimentano lo stesso motore. Bonus, Under, Switch e modificatori cambiano valore e priorità senza modificare automaticamente la rosa.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
-    <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
+    <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
     <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid"><button class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>
     <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button><button id="fa2EditReg" class="ghost fa2-edit-reg" type="button">Modifica regolamento</button></div>
@@ -3815,7 +3890,7 @@ function renderStrategyView(){
   };
   $$('[data-fa2-slot-open]').forEach(btn=>btn.onclick=()=>fa2OpenSlotAnalysis(btn.dataset.fa2SlotOpen));
 }
-window.addEventListener("fa2:regulation-changed",()=>{fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");if(state.view==="strategyView")renderStrategyView()});
+window.addEventListener("fa2:regulation-changed",event=>{fa2AppRegulationCache=event?.detail||null;fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");if(state.view==="strategyView")renderStrategyView()});
 window.addEventListener("fa2:strategy-slots-changed",()=>{
   if(state.view==="strategyView")renderStrategyView();
   if($("#liveDialog")?.open)renderAuctionLive();
