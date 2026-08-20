@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.7
+/* FantaAsta2.0 — Strategy Engine alpha 3.8
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -96,6 +96,97 @@
       return {...runtime,_planIndex:entry.index};
     });
     return resolved.sort((a,b)=>a._planIndex-b._planIndex).map(({_planIndex,...runtime})=>runtime);
+  }
+
+  /* A3.8 — Budget Runtime puro e non persistente.
+     Distribuisce interi senza superare il budget disponibile e conserva il
+     minimo per gli altri posti della rosa. */
+  function allocateInteger(rows,total,minEach=0,weightFor=x=>x.weight){
+    const count=rows.length,amount=Math.max(0,round(total)),minimum=Math.max(0,round(minEach));
+    if(!count)return {};
+    const floor=amount>=count*minimum?minimum:0,out={};
+    rows.forEach(x=>{out[x.key]=floor});
+    let left=amount-floor*count;
+    if(left<=0)return out;
+    let weights=rows.map((x,index)=>({key:x.key,index,weight:Math.max(0,Number(weightFor(x))||0)}));
+    let weightTotal=weights.reduce((sum,x)=>sum+x.weight,0);
+    if(weightTotal<=0){weights=weights.map(x=>({...x,weight:1}));weightTotal=weights.length}
+    const shares=weights.map(x=>{
+      const exact=left*x.weight/weightTotal,whole=Math.floor(exact);
+      out[x.key]+=whole;
+      return {...x,fraction:exact-whole};
+    });
+    let remainder=amount-Object.values(out).reduce((sum,x)=>sum+x,0);
+    shares.sort((a,b)=>b.fraction-a.fraction||a.index-b.index);
+    for(let i=0;i<remainder;i++)out[shares[i%shares.length].key]++;
+    return out;
+  }
+  function dynamicCandidateCap(candidate,slotBudget,maxNext=Infinity){
+    const base=Math.max(1,Number(candidate?.maxRecommended||slotBudget?.baseCap)||1);
+    const baseBudget=Math.max(1,Number(slotBudget?.baseBudget)||base);
+    const dynamicBudget=Math.max(0,Number(slotBudget?.dynamicBudget)||0);
+    const hardMax=Number.isFinite(Number(maxNext))?Math.max(0,Number(maxNext)):Infinity;
+    if(dynamicBudget<=0||hardMax<=0)return 0;
+    const factor=clamp(Math.sqrt(dynamicBudget/baseBudget),.68,1.28);
+    return Math.max(1,round(Math.min(base*factor,dynamicBudget,hardMax)));
+  }
+  function rebalanceBudget(input={}){
+    const remaining=Math.max(0,round(input.remaining));
+    const missing=Math.max(0,round(input.missing));
+    const minBid=Math.max(1,round(input.minBid||1));
+    const rows=(input.slots||[]).map((raw,index)=>{
+      const state=String(raw?.state||"");
+      const open=raw?.open??(state===SLOT_STATES.TARGET_ACTIVE||state===SLOT_STATES.PROMOTED);
+      const covered=raw?.covered??state===SLOT_STATES.COVERED;
+      const baseCap=Math.max(1,round(raw?.baseCap||raw?.maxRecommended||1));
+      const baseBudget=Math.max(minBid,round(raw?.baseBudget||baseCap));
+      return {
+        ...raw,index,key:String(raw?.key??index),state,open:!!open,covered:!!covered,
+        phase:String(raw?.phase||"TOT"),baseCap,baseBudget,
+        paid:Math.max(0,round(raw?.paid)),priorityScore:clamp(raw?.priorityScore),
+        inflationPct:clamp(raw?.inflationPct,-50,100),inflationConfidence:clamp(raw?.inflationConfidence,0,1)
+      };
+    });
+    const openRows=rows.filter(x=>x.open),groups=new Map();
+    rows.forEach(row=>{if(!groups.has(row.phase))groups.set(row.phase,[]);groups.get(row.phase).push(row)});
+    const desiredByKey={},phases={};
+    for(const [phase,phaseRows] of groups){
+      const phaseOpen=phaseRows.filter(x=>x.open);
+      const baseBudget=phaseRows.reduce((sum,x)=>sum+x.baseBudget,0);
+      const spentCovered=phaseRows.filter(x=>x.covered).reduce((sum,x)=>sum+x.paid,0);
+      const inflationRows=phaseOpen.length?phaseOpen:phaseRows;
+      const inflationPct=inflationRows.length?avg(inflationRows.map(x=>x.inflationPct)):0;
+      const inflationConfidence=inflationRows.length?avg(inflationRows.map(x=>x.inflationConfidence)):0;
+      const inflationFactor=clamp(1+(inflationPct/100)*.22*inflationConfidence,.88,1.18);
+      const pool=phaseOpen.length?Math.max(minBid*phaseOpen.length,baseBudget-spentCovered):0;
+      const desiredTotal=phaseOpen.length?Math.max(minBid*phaseOpen.length,round(pool*inflationFactor)):0;
+      const phaseDesired=allocateInteger(phaseOpen,desiredTotal,minBid,x=>x.baseBudget*(.8+.4*x.priorityScore/100));
+      Object.assign(desiredByKey,phaseDesired);
+      phases[phase]={baseBudget,spentCovered,openCount:phaseOpen.length,inflationPct:round(inflationPct),inflationConfidence,inflationFactor,desiredBudget:desiredTotal,dynamicBudget:0};
+    }
+    const reserve=Math.max(0,missing*minBid);
+    const reserveAfterNext=Math.max(0,(missing-1)*minBid);
+    const free=Math.max(0,remaining-reserve);
+    const maxNext=missing>0?Math.max(0,remaining-reserveAfterNext):0;
+    const reserveOutsidePlan=Math.max(0,missing-openRows.length)*minBid;
+    const planCapacity=Math.max(0,remaining-reserveOutsidePlan);
+    const desiredTotal=Object.values(desiredByKey).reduce((sum,x)=>sum+x,0);
+    const planBudget=Math.min(planCapacity,desiredTotal);
+    const dynamicByKey=planBudget<desiredTotal
+      ? allocateInteger(openRows,planBudget,minBid,x=>desiredByKey[x.key]||x.baseBudget)
+      : desiredByKey;
+    const slotBudgets={};
+    rows.forEach(row=>{
+      const dynamicBudget=row.open?Math.max(0,Number(dynamicByKey[row.key])||0):0;
+      const info={key:row.key,phase:row.phase,state:row.state,open:row.open,covered:row.covered,baseBudget:row.baseBudget,dynamicBudget,deltaBudget:dynamicBudget-row.baseBudget,baseCap:row.baseCap,inflationPct:row.inflationPct,inflationConfidence:row.inflationConfidence,priorityScore:row.priorityScore};
+      info.dynamicCap=row.open?dynamicCandidateCap({maxRecommended:row.baseCap},info,maxNext):0;
+      slotBudgets[row.key]=info;
+      if(row.open&&phases[row.phase])phases[row.phase].dynamicBudget+=dynamicBudget;
+    });
+    const allocated=Object.values(dynamicByKey).reduce((sum,x)=>sum+Number(x||0),0);
+    const overallInflation=Number(input.overallInflation)||0;
+    const status=remaining<reserve?"INSUFFICIENT":planBudget<desiredTotal?"PROTETTO":"OK";
+    return {remaining,missing,minBid,reserve,reserveAfterNext,free,maxNext,reserveOutsidePlan,planCapacity,desiredTotal,allocated,planScale:desiredTotal?allocated/desiredTotal:1,overallInflation,status,phases,slots:slotBudgets};
   }
 
   function loadProfile(){
@@ -451,5 +542,5 @@
     const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
     return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),SLOT_STATES,SLOT_PLAYER_STATES,SLOT_STATE_LABELS,loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot,resolveSlotState,resolvePlanSlots};
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),SLOT_STATES,SLOT_PLAYER_STATES,SLOT_STATE_LABELS,loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot,resolveSlotState,resolvePlanSlots,rebalanceBudget,dynamicCandidateCap};
 })();
