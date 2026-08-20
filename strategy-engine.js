@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.6
+/* FantaAsta2.0 — Strategy Engine alpha 3.7
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -75,7 +75,27 @@
     return {...base,state,stateLabel:SLOT_STATE_LABELS[state],covered:false,coveredBy:null,current,alternatives:available.slice(1,4),promoted};
   }
   function resolvePlanSlots(plan,playerStateFor){
-    return Object.entries(plan?.slots||{}).map(([key,slot])=>resolveSlotState(slot,playerStateFor,key));
+    const stateFor=typeof playerStateFor==="function"?playerStateFor:()=>SLOT_PLAYER_STATES.MISSING;
+    const claimedPlayers=new Set();
+    const entries=Object.entries(plan?.slots||{}).map(([key,slot],index)=>({key,slot:slot||{},index}));
+    // A3.7: uno stesso giocatore non può essere TARGET operativo o copertura
+    // di due slot. Nei piani precedenti sovrapposti prevale lo slot più
+    // prioritario; a parità resta stabile l'ordine già salvato nel piano.
+    const ordered=entries.slice().sort((a,b)=>{
+      const ap=Number(a.slot?.priority?.score??a.slot?.priorityScore)||0;
+      const bp=Number(b.slot?.priority?.score??b.slot?.priorityScore)||0;
+      return bp-ap||a.index-b.index;
+    });
+    const resolved=ordered.map(entry=>{
+      const runtime=resolveSlotState(entry.slot,id=>{
+        const state=stateFor(id)||SLOT_PLAYER_STATES.MISSING;
+        return (state===SLOT_PLAYER_STATES.OWNED||state===SLOT_PLAYER_STATES.AVAILABLE)&&claimedPlayers.has(String(id))?SLOT_PLAYER_STATES.LOST:state;
+      },entry.key);
+      if(runtime.coveredBy)claimedPlayers.add(String(runtime.coveredBy.id));
+      else if(runtime.current)claimedPlayers.add(String(runtime.current.id));
+      return {...runtime,_planIndex:entry.index};
+    });
+    return resolved.sort((a,b)=>a._planIndex-b._planIndex).map(({_planIndex,...runtime})=>runtime);
   }
 
   function loadProfile(){
@@ -382,8 +402,12 @@
     alternatives.forEach((x,i)=>{x.altRank=i+1;x.maxRecommended=recommendedMaxForCandidate(x,moduleResult,roles,row,env.reg,'alt')});
     values.forEach(x=>{x.maxRecommended=recommendedMaxForCandidate(x,moduleResult,roles,row,env.reg,'value')});
     const budget=slotMacroBudget(moduleResult,roles,env.reg);
+    const core=[target,...alternatives].filter(Boolean);
+    const minimumScore=core.length?Math.min(...core.map(x=>Number(x.score)||0)):0;
+    const priorityScore=round(clamp(Number(row.scarcity)*.65+(100-Number(row.depth))*.35));
+    const priority={score:priorityScore,label:priorityScore>=55?'ALTA':priorityScore>=30?'MEDIA':'BASSA'};
     return {
-      key:slotKey(roles),roles:roles.slice(),row,budget,target,alternatives,values,
+      key:slotKey(roles),roles:roles.slice(),row,budget,minimumScore,priority,target,alternatives,values,
       candidates:enriched.slice(0,12),secondaryModule:secondaryModule?.name||'',
       summary:{scarcity:row.scarcity,strongCount:row.strongCount,depth:row.depth,quality:row.quality,starter:row.starter,history:row.history,historyCoverage:row.historyCoverage}
     };
