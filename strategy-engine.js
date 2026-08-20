@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.4
+/* FantaAsta2.0 — Strategy Engine alpha 3.5
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */

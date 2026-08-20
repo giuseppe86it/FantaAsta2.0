@@ -1,8 +1,8 @@
 const CACHE_PREFIX="fantaasta2-";
-const CACHE="fantaasta2-v2.0.0-alpha.3.4";
+const CACHE="fantaasta2-v2.0.0-alpha.3.5";
 const ASSETS=[
-  "./","./index.html","./styles.css?v=2.0.0-alpha.3.4","./app.js?v=2.0.0-alpha.3.4",
-  "./regulation-engine.js?v=2.0.0-alpha.3.4","./strategy-engine.js?v=2.0.0-alpha.3.4","./player-intelligence-engine.js?v=2.0.0-alpha.3.4",
+  "./","./index.html","./styles.css?v=2.0.0-alpha.3.5","./app.js?v=2.0.0-alpha.3.5",
+  "./regulation-engine.js?v=2.0.0-alpha.3.5","./strategy-engine.js?v=2.0.0-alpha.3.5","./player-intelligence-engine.js?v=2.0.0-alpha.3.5",
   "./players.js?v=1.45.1","./formations.js?v=1.45.1","./market.js?v=1.45.1",
   "./listone-current.json","./formations-current.json","./player-intelligence.json",
   "./manifest.webmanifest","./icon-192.png","./icon-512.png","./apple-touch-icon.png","./favicon-32.png"
