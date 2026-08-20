@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.2.1
+/* FantaAsta2.0 — Strategy Engine alpha 3.3
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -270,6 +270,77 @@
     entries.forEach(([k,v],i)=>{const c=i===entries.length-1?budget-credits:Math.round(v*budget);credits+=c;out[k]={pct:round(v*100),credits:c}});
     return out;
   }
+
+  function moduleMacroSlotCount(module,macro){
+    let count=0;
+    (module?.slots||[]).forEach(roles=>{
+      const macros=[...new Set((roles||[]).map(r=>ROLE_MACRO[r]).filter(Boolean))];
+      if(macros.includes(macro))count+=1/Math.max(1,macros.length);
+    });
+    return Math.max(1,count);
+  }
+  function bridgeFitForPlayer(p,secondaryModule){
+    if(!secondaryModule)return 50;
+    const matching=(secondaryModule.slots||[]).filter(roles=>compatible(p,roles)).length;
+    if(!matching)return 0;
+    return clamp(58+matching*12);
+  }
+  function slotMacroBudget(moduleResult,roles,reg){
+    const budget=macroWeights(moduleResult,reg);
+    const macros=[...new Set((roles||[]).map(r=>ROLE_MACRO[r]).filter(Boolean))];
+    if(!macros.length)return {credits:Math.max(1,Number(reg?.budget?.initial)||2500),perSlot:0,macro:'TOT'};
+    const credits=avg(macros.map(m=>Number(budget?.[m]?.credits)||0));
+    const perSlot=avg(macros.map(m=>credits/Math.max(1,moduleMacroSlotCount(moduleResult.module,m))));
+    return {credits:round(credits),perSlot:round(perSlot),macro:macros.join('/')};
+  }
+  function recommendedMaxForCandidate(candidate,moduleResult,roles,row,reg,rankType='alt'){
+    const m=candidate.m,bridge=candidate.bridge||0,auction=candidate.auctionScore||0,history=m.historyScore||0;
+    const neutral=Math.max(1,round(m.price));
+    const scarcity=Number(row?.scarcity)||0;
+    const macro=slotMacroBudget(moduleResult,roles,reg);
+    let multiplier=.78+auction*.0026+m.starter*.0007+history*.0006+scarcity*.001+(bridge>=80?.025:0);
+    if(rankType==='target')multiplier+=.04;
+    if(rankType==='value')multiplier-=.05;
+    const raw=neutral*multiplier;
+    const strategicCap=Math.max(neutral*.90,macro.perSlot*(1.25+auction/100*.82));
+    const hardCap=neutral*1.42;
+    return Math.max(1,round(Math.min(raw,strategicCap,hardCap)));
+  }
+  function analyseSlotWithEnv(moduleResult,roles,env,secondaryModule=null){
+    const row=slotMarket(moduleResult.module,roles,env);
+    const pool=slotCandidatePool(roles,env).slice(0,36);
+    const enriched=pool.map(({p,m})=>{
+      const bridge=bridgeFitForPlayer(p,secondaryModule);
+      const historyEffective=m.historyScore>0?m.historyScore:m.intelligence;
+      const auctionScore=clamp(m.intelligence*.48+m.starter*.15+historyEffective*.11+m.efficiency*.12+m.flex*.06+m.youth*.03+bridge*.05);
+      const valueScore=clamp(m.intelligence*.42+m.efficiency*.30+m.starter*.10+historyEffective*.09+m.flex*.05+bridge*.04);
+      return {
+        id:p.id,name:p.name,club:p.club,role:p.role,reparto:p.reparto,fvm:round(m.fvm),
+        score:round(auctionScore),intelligence:round(m.intelligence),starter:round(m.starter),
+        history:round(m.historyScore),historyReliability:round(m.historyReliability),efficiency:round(m.efficiency),
+        flexibility:round(m.flex),youth:round(m.youth),bridge:round(bridge),neutralMax:round(m.price),valueScore:round(valueScore),
+        assigned:!isAvailable(p,env.ctx),player:p,m
+      };
+    }).sort((a,b)=>b.score-a.score||b.history-a.history||b.starter-a.starter||b.fvm-a.fvm);
+    const target=enriched[0]||null;
+    const alternatives=enriched.slice(1,4);
+    const reserved=new Set([target,...alternatives].filter(Boolean).map(x=>String(x.id)));
+    const values=enriched.filter(x=>!reserved.has(String(x.id))).sort((a,b)=>b.valueScore-a.valueScore||b.score-a.score).slice(0,3);
+    if(target)target.maxRecommended=recommendedMaxForCandidate(target,moduleResult,roles,row,env.reg,'target');
+    alternatives.forEach((x,i)=>{x.altRank=i+1;x.maxRecommended=recommendedMaxForCandidate(x,moduleResult,roles,row,env.reg,'alt')});
+    values.forEach(x=>{x.maxRecommended=recommendedMaxForCandidate(x,moduleResult,roles,row,env.reg,'value')});
+    const budget=slotMacroBudget(moduleResult,roles,env.reg);
+    return {
+      key:slotKey(roles),roles:roles.slice(),row,budget,target,alternatives,values,
+      candidates:enriched.slice(0,12),secondaryModule:secondaryModule?.name||'',
+      summary:{scarcity:row.scarcity,strongCount:row.strongCount,depth:row.depth,quality:row.quality,starter:row.starter,history:row.history,historyCoverage:row.historyCoverage}
+    };
+  }
+  function analyseSlot(moduleResult,roles,players,reg,ctx,secondaryModule=null){
+    const env=environment(players,reg,ctx);
+    return analyseSlotWithEnv(moduleResult,roles,env,secondaryModule);
+  }
+
   function bridgeRoles(a,b){
     const A=a.slots.slice(1).flat(),B=b.slots.slice(1).flat(),all=[...new Set(A.concat(B))];
     return all.map(role=>({role,a:A.filter(x=>x===role).length,b:B.filter(x=>x===role).length})).filter(x=>x.a&&x.b).sort((x,y)=>(y.a+y.b)-(x.a+x.b));
@@ -304,5 +375,5 @@
     const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
     return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity};
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot};
 })();
