@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Player Intelligence Engine alpha 3.3
+/* FantaAsta2.0 — Player Intelligence Engine alpha 3.4
    Feed locale sincronizzato da GitHub Actions. Il browser NON esegue scraping:
    scarica soltanto player-intelligence.json e usa una cache locale sicura. */
 (function(){
