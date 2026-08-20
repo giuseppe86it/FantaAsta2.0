@@ -2110,6 +2110,7 @@ function renderAuctionLive(){
   $("#liveDialogContent").innerHTML=`<div class="dialog-body live-dialog-body">
     <div class="live-dialog-head"><div><span class="eyebrow">${phase.icon} Fase ${phase.id}</span><h2>Asta Live</h2></div><button id="closeLiveBtn" class="ghost">✕</button></div>
     ${liveTargetBannerHTML()}
+    ${fa2LiveModuleAdvisorHTML()}
     ${fa2LiveBudgetStripHTML()}
     <input id="liveSearchInput" class="search live-search" placeholder="Cerca giocatore…" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="liveSelected"></div>
@@ -3370,14 +3371,15 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.8").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.9").catch(()=>{}));
 
 /* =========================================================
-   FantaAsta2.0 alpha 3.8 — Dynamic Budget Rebalancing
-   Budget e MAX degli slot aperti vengono derivati in tempo reale senza
-   modificare il Piano Strategia o i dati persistenti dell'asta.
+   FantaAsta2.0 alpha 3.9 — Module Switch Advisor
+   Il Budget Runtime A3.8 resta condiviso; il nuovo advisor confronta i
+   moduli senza cambiare automaticamente il Piano Strategia.
    ========================================================= */
 const FA2_PURCHASE_PLAN_KEY="fa2_strategy_purchase_plan_v1";
+const FA2_MODULE_ADVISOR_KEY="fa2_module_switch_advisor_v1";
 let fa2LastSlotAnalysis=null;
 function fa2CandidateSnapshot(x,label=""){
   if(!x)return null;
@@ -3416,10 +3418,12 @@ function fa2LoadPurchasePlan(){
 function fa2SavePurchasePlan(plan){
   const value=fa2NormalizePurchasePlan({...plan,schema:2,updatedAt:Date.now()});
   localStorage.setItem(FA2_PURCHASE_PLAN_KEY,JSON.stringify(value));
+  fa2InvalidateModuleAdvisor();
   return value;
 }
 function fa2ClearPurchasePlan(){
   localStorage.removeItem(FA2_PURCHASE_PLAN_KEY);
+  fa2InvalidateModuleAdvisor();
   if(state.view==="strategyView")renderStrategyView();
 }
 function fa2SlotKey(roles){return (roles||[]).slice().sort().join("/")}
@@ -3521,6 +3525,63 @@ function fa2PlanRuntimeSlots(){
     return runtime;
   });
 }
+let fa2ModuleAdvisorCache={fingerprint:"",result:null};
+function fa2InvalidateModuleAdvisor(){fa2ModuleAdvisorCache={fingerprint:"",result:null}}
+function fa2ModuleAdvisorFingerprint(primaryId,secondaryId,reg){
+  const own=Object.entries(state.purchases||{}).map(([id,x])=>`${id}:${Number(x?.price)||0}`).sort();
+  const sold=Object.entries(state.sold||{}).map(([id,x])=>`${id}:${Number(x?.price)||0}:${x?.teamId||""}`).sort();
+  return JSON.stringify([
+    primaryId,secondaryId,own,sold,state.auctionPhase,reg,
+    appliedListoneSync?.generatedAt||"",formationsLiveFeed?.generatedAt||"",
+    window.FA2PlayerIntelligence?.generatedLabel?.()||""
+  ]);
+}
+function fa2LoadModuleAdvisorState(){
+  try{return JSON.parse(localStorage.getItem(FA2_MODULE_ADVISOR_KEY)||"null")||{}}catch{return {}}
+}
+function fa2SaveModuleAdvisorState(advisor){
+  if(!advisor)return;
+  const previous=fa2LoadModuleAdvisorState(),next={
+    schema:1,currentPrimaryId:advisor.currentPrimaryId,status:advisor.status,
+    recommendedPrimaryId:advisor.recommendedPrimaryId,recommendedSecondaryId:advisor.recommendedSecondaryId
+  };
+  if(JSON.stringify(previous)!==JSON.stringify(next))localStorage.setItem(FA2_MODULE_ADVISOR_KEY,JSON.stringify(next));
+}
+function fa2GetModuleAdvisor(){
+  const engine=window.FA2Strategy,advise=engine?.adviseModuleSwitch;
+  if(typeof advise!=="function")return null;
+  const profile=engine.loadProfile(),plan=fa2LoadPurchasePlan(),hasPlan=Object.keys(plan.slots||{}).length>0;
+  const primaryId=String(hasPlan&&plan.primaryId?plan.primaryId:profile.primary),secondaryId=String(hasPlan&&plan.secondaryId?plan.secondaryId:profile.secondary);
+  const reg=window.FA2Regulation?.load?.()||{},fingerprint=fa2ModuleAdvisorFingerprint(primaryId,secondaryId,reg);
+  if(fa2ModuleAdvisorCache.fingerprint===fingerprint)return fa2ModuleAdvisorCache.result;
+  const econ=teamEconomy(mineTeam()),base=fa2StrategyContext(reg,"live");
+  const ctx={
+    ...base,
+    isOwned:p=>!!state.purchases?.[p?.id],
+    isMarketAvailable:p=>!!p&&isMarketEligiblePlayer(p)&&!state.purchases?.[p.id]&&(reg?.availability==="multiple"||!state.sold?.[p.id]),
+    freeBudget:econ.free,remainingBudget:econ.remaining,missingRoster:econ.missing
+  };
+  const advisor=advise({
+    players:allPlayers,reg,ctx,currentPrimaryId:primaryId,currentSecondaryId:secondaryId,
+    previous:fa2LoadModuleAdvisorState(),marketEvents:auctionTransactions().length
+  });
+  fa2ModuleAdvisorCache={fingerprint,result:advisor};fa2SaveModuleAdvisorState(advisor);
+  return advisor;
+}
+function fa2ModuleAdvisorHTML(advisor=fa2GetModuleAdvisor()){
+  if(!advisor?.current||!advisor?.recommendedPrimary)return "";
+  const change=advisor.status==="SWITCH",current=advisor.current,recommended=advisor.recommendedPrimary,secondary=advisor.recommendedSecondary;
+  const fitTotal=Math.min(Number(advisor.ownedCount)||0,11),fit=recommended.fit||{};
+  const title=change?"CAMBIO MODULO CONSIGLIATO":"MODULO CONFERMATO";
+  const route=change?`${current.module.name} → ${recommended.module.name}`:`Continua con ${current.module.name}`;
+  const reasons=(advisor.reasons||[]).map(esc).join(" · ");
+  return `<div class="fa2-saved-plan ${change?"stale":"active"}"><div class="fa2-saved-head"><div><b>MODULE SWITCH ADVISOR · α3.9</b><span>${esc(title)}${advisor.hysteresisHeld?" · consiglio stabilizzato":""}</span></div></div><div class="fa2-result-head"><div><span>${esc(title)}</span><b>${esc(route)}</b><small>Alternativa consigliata: ${esc(secondary?.module?.name||"—")}</small></div><b class="fa2-score">${change?`+${advisor.delta}`:current.score}<small>${change?" punti":"/100"}</small></b></div><div class="fa2-slot-summary"><div><span>ATTUALE</span><b>${current.score}/100</b></div><div><span>CONSIGLIATO</span><b>${recommended.score}/100</b></div><div><span>SOGLIA</span><b>${advisor.enterThreshold}</b></div><div><span>CONFIDENZA</span><b>${advisor.confidence}%</b></div><div><span>ACQUISTI FIT</span><b>${fit.matched||0}/${fitTotal}</b></div><div><span>STIMA CHIUSURA XI</span><b>${fmt(recommended.estimatedCompletion)} cr</b></div></div><div class="fa2-slot-note">${reasons}</div><div class="fa2-bridge"><b>Decisione assistita:</b> il modulo e il Piano Strategia non vengono modificati automaticamente.${change?` Per applicare il consiglio, seleziona ${esc(recommended.module.name)} come principale, ${esc(secondary?.module?.name||"un secondo modulo")} come alternativa e rigenera la strategia.`:""}</div></div>`;
+}
+function fa2LiveModuleAdvisorHTML(){
+  const advisor=fa2GetModuleAdvisor();if(advisor?.status!=="SWITCH")return "";
+  const next=advisor.recommendedPrimary?.module?.name||"—",secondary=advisor.recommendedSecondary?.module?.name||"—";
+  return `<div class="live-strategy-signal dynamic"><span class="live-target-symbol">CAMBIO</span><div><b>${esc(next)} CONSIGLIATO · +${advisor.delta}</b><small>Attuale ${esc(advisor.current?.module?.name||"—")} · alternativa ${esc(secondary)} · soglia ${advisor.enterThreshold}. Il Piano Strategia resta invariato.</small></div></div>`;
+}
 function fa2CaptureStrategySlotStates(){
   const snapshot={};
   fa2PlanRuntimeSlots().forEach(rt=>{snapshot[rt.key]={state:rt.state,currentId:String(rt.current?.id||""),coveredById:String(rt.coveredBy?.id||"")}});
@@ -3529,10 +3590,11 @@ function fa2CaptureStrategySlotStates(){
 let fa2LastStrategyAuctionEvent=null;
 function fa2AfterAuctionStateChange(type,playerId,beforeStates=null){
   invalidateAuctionIntel();
+  fa2InvalidateModuleAdvisor();
   const afterStates=fa2CaptureStrategySlotStates(),before=beforeStates||{};
   const transitions=Object.keys({...before,...afterStates}).map(key=>({key,from:before[key]?.state||null,to:afterStates[key]?.state||null,currentId:afterStates[key]?.currentId||"",coveredById:afterStates[key]?.coveredById||""})).filter(x=>x.from!==x.to||before[x.key]?.currentId!==afterStates[x.key]?.currentId||before[x.key]?.coveredById!==afterStates[x.key]?.coveredById);
-  const b=fa2LastBudgetRuntime||{};
-  fa2LastStrategyAuctionEvent={type:String(type||"AUCTION_CHANGED"),playerId:String(playerId||""),at:Date.now(),transitions,budget:{remaining:Number(b.remaining)||0,missing:Number(b.missing)||0,reserve:Number(b.reserve)||0,free:Number(b.free)||0,maxNext:Number(b.maxNext)||0,allocated:Number(b.allocated)||0,inflation:Number(b.overallInflation)||0,status:b.status||""}};
+  const b=fa2LastBudgetRuntime||{},advisor=fa2GetModuleAdvisor();
+  fa2LastStrategyAuctionEvent={type:String(type||"AUCTION_CHANGED"),playerId:String(playerId||""),at:Date.now(),transitions,budget:{remaining:Number(b.remaining)||0,missing:Number(b.missing)||0,reserve:Number(b.reserve)||0,free:Number(b.free)||0,maxNext:Number(b.maxNext)||0,allocated:Number(b.allocated)||0,inflation:Number(b.overallInflation)||0,status:b.status||""},moduleAdvisor:advisor?{status:advisor.status,currentPrimaryId:advisor.currentPrimaryId,recommendedPrimaryId:advisor.recommendedPrimaryId,recommendedSecondaryId:advisor.recommendedSecondaryId,delta:advisor.delta,threshold:advisor.enterThreshold,confidence:advisor.confidence}:null};
   try{window.dispatchEvent(new CustomEvent("fa2:strategy-slots-changed",{detail:fa2LastStrategyAuctionEvent}))}catch{}
   return fa2LastStrategyAuctionEvent;
 }
@@ -3576,7 +3638,7 @@ function fa2StrategyGuidanceForPlayer(p){
 function fa2PlayerPlanHTML(p){
   const tags=fa2PlayerPlanMembership(p);if(!tags.length)return "";
   const plan=fa2LoadPurchasePlan(),top=tags[0],cap=Number(top.maxRecommended)||0;
-  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.8</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b>${top.dynamicBudget?`<span> · SLOT ${fmt(top.dynamicBudget)}</span>`:""}</div>`:""}</section>`;
+  return `<section class="fa2-player-plan alpha34"><div><span>PIANO STRATEGIA α3.9</span><b>${tags.map(x=>`${esc(x.label)} · ${esc(x.slot)}`).join(" · ")}</b><small>${plan.primaryName?`${esc(plan.primaryName)}${plan.secondaryName?` + ${esc(plan.secondaryName)}`:""}`:"Strategia salvata"}</small></div>${cap?`<div class="fa2-plan-cap"><span>MAX STRATEGICO</span><b>${fmt(cap)}</b>${top.dynamicBudget?`<span> · SLOT ${fmt(top.dynamicBudget)}</span>`:""}</div>`:""}</section>`;
 }
 function fa2PlanCandidateName(x){const p=getPlayer(x?.id);return p?.name||x?.name||"—"}
 function fa2SavedPlanHTML(result){
@@ -3603,7 +3665,7 @@ function fa2SavedPlanHTML(result){
   }).join("");
   const covered=runtimes.filter(x=>x.state===slotStates.COVERED).length,exhausted=runtimes.filter(x=>x.state===slotStates.LOST_EXHAUSTED).length,open=Math.max(0,entries.length-covered-exhausted);
   const budgetRuntime=runtimes[0]?.budgetRuntime||fa2LastBudgetRuntime;
-  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.8</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti${exhausted?` · ${exhausted} esauriti`:""}`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${fa2BudgetRuntimeHTML(budgetRuntime)}${rows}</div>`;
+  return `<div class="fa2-saved-plan active ${stale?"stale":""}"><div class="fa2-saved-head"><div><b>STRATEGIA ATTIVA · α3.9</b><span>${stale?"Il piano appartiene a un modulo precedente: ricontrollalo.":`${esc(plan.primaryName||"Modulo")} ${plan.secondaryName?`+ ${esc(plan.secondaryName)}`:""} · ${covered} coperti · ${open} aperti${exhausted?` · ${exhausted} esauriti`:""}`}</span></div><button type="button" class="ghost" onclick="fa2ClearPurchasePlan()">Pulisci</button></div>${fa2BudgetRuntimeHTML(budgetRuntime)}${rows}</div>`;
 }
 function fa2CandidateHTML(x,badge){
   if(!x)return "";
@@ -3629,7 +3691,7 @@ function fa2OpenSlotAnalysis(slotKey){
   const altHtml=(a.alternatives||[]).map((x,i)=>fa2CandidateHTML(x,`ALT ${i+1}`)).join("");
   const valueHtml=(a.values||[]).map(x=>fa2CandidateHTML(x,"VALUE")).join("");
   $("#fa2SlotDialogContent").innerHTML=`<div class="dialog-body fa2-slot-dialog-body">
-    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.8</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
+    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α3.9</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
     <div class="fa2-slot-summary"><div><span>PRIORITÀ</span><b>${esc(a.priority?.label||"—")}</b></div><div><span>VALORE MINIMO</span><b>${a.minimumScore||0}/100</b></div><div><span>BUDGET BASE</span><b>${a.budget.perSlot}</b></div><div><span>SCARSITÀ</span><b>${a.summary.scarcity}</b></div><div><span>FORTI</span><b>${a.summary.strongCount}</b></div><div><span>PROFONDITÀ</span><b>${a.summary.depth}</b></div></div>
     <div class="fa2-slot-note">Il MAX strategico resta separato dal MAX LIVE.${reservedIds.size?` Per evitare conflitti, ${reservedIds.size} candidati già riservati negli altri slot sono esclusi da questa analisi.`:""}</div>
     <div class="fa2-candidate-section"><h3>TARGET</h3>${a.target?fa2CandidateHTML(a.target,"TARGET"):'<p class="muted">Nessun candidato.</p>'}</div>
@@ -3644,7 +3706,7 @@ function fa2SaveCurrentSlotPlan(){
   const {analysis:a,result,slotInstance}=current,plan=fa2LoadPurchasePlan();
   plan.primaryId=result.primary.module.id;plan.primaryName=result.primary.module.name;
   plan.secondaryId=result.secondary?.module?.id||"";plan.secondaryName=result.secondary?.module?.name||"";
-  plan.scope=result.profile?.scope||"full";plan.generatedAt=result.profile?.lastGeneratedAt||Date.now();plan.version="A3.8";plan.slots=plan.slots||{};
+  plan.scope=result.profile?.scope||"full";plan.generatedAt=result.profile?.lastGeneratedAt||Date.now();plan.version="A3.9";plan.slots=plan.slots||{};
   const target=fa2CandidateSnapshot(a.target,"TARGET"),alternatives=(a.alternatives||[]).map((x,i)=>fa2CandidateSnapshot(x,`ALT ${i+1}`)),values=(a.values||[]).map(x=>fa2CandidateSnapshot(x,"VALUE"));
   const slotId=slotInstance?.id||a.key,roleKey=slotInstance?.roleKey||a.key,slotIndex=slotInstance?.slotIndex||1,slotCount=slotInstance?.slotCount||1,slotLabel=slotInstance?.label||a.roles.join("/");
   plan.slots[slotId]={key:slotId,roleKey,slotIndex,slotCount,slotLabel,roles:a.roles,target,alternatives,values,targetId:String(target.id),altIds:alternatives.map(x=>x.id),valueIds:values.map(x=>x.id),maxRecommended:target.maxRecommended,minimumScore:Number(a.minimumScore)||0,budgetSlot:Number(a.budget?.perSlot)||0,priority:{score:Number(a.priority?.score)||0,label:a.priority?.label||""},updatedAt:Date.now()};
@@ -3699,9 +3761,10 @@ function fa2RenderExplanation(p){
   return `<div class="fa2-explain"><div class="fa2-strength"><b>PERCHÉ FUNZIONA</b>${(ex.strengths||[]).map(x=>`<span>✓ ${esc(x)}</span>`).join("")}</div><div class="fa2-warning"><b>COSA PROTEGGERE IN ASTA</b>${(ex.warnings||[]).map(x=>`<span>⚠ ${esc(x)}</span>`).join("")}</div>${ex.priority?.length?`<div class="fa2-priority"><b>PRIORITÀ:</b> ${ex.priority.map(esc).join(" → ")}</div>`:""}</div>`;
 }
 function fa2RenderStrategyResult(result){
+  const advisorHTML=fa2ModuleAdvisorHTML();
   if(!result){
     const plan=fa2LoadPurchasePlan(),hasPlan=Object.keys(plan.slots||{}).length>0;
-    return `<div class="fa2-result">${hasPlan?fa2SavedPlanHTML(null):'<div class="card"><b>Nessuna strategia generata</b><p class="muted">Scegli il metodo e premi CREA STRATEGIA.</p></div>'}${hasPlan?'<div class="card fa2-persist-note"><b>Piano persistente</b><p class="muted">La strategia salvata resta attiva anche dopo la chiusura dell’app. Premi ANALIZZA LISTONE per ricalcolare moduli e slot.</p></div>':''}</div>`;
+    return `<div class="fa2-result">${advisorHTML}${hasPlan?fa2SavedPlanHTML(null):'<div class="card"><b>Nessuna strategia generata</b><p class="muted">Scegli il metodo e premi CREA STRATEGIA.</p></div>'}${hasPlan?'<div class="card fa2-persist-note"><b>Piano persistente</b><p class="muted">La strategia salvata resta attiva anche dopo la chiusura dell’app. Premi ANALIZZA LISTONE per ricalcolare moduli e slot.</p></div>':''}</div>`;
   }
   const p=result.primary,headlineScore=result.mode==="mono"?p.score:(result.pairScore||p.score);
   const kpis=`<div class="fa2-kpis alpha3"><div class="${fa2MetricClass(p.quality)}"><span>QUALITÀ XI</span><b>${p.quality}</b></div><div class="${fa2MetricClass(p.starter)}"><span>TITOLARITÀ</span><b>${p.starter}%</b></div><div class="${fa2MetricClass(p.history||0)}"><span>STORICO</span><b>${p.historyCoverage?`${p.history}`:"—"}</b><small>${p.historyCoverage?`${p.historyCoverage}% copertura`:"feed non pronto"}</small></div><div class="${fa2MetricClass(p.depth)}"><span>PROFONDITÀ</span><b>${p.depth}</b></div><div class="${fa2MetricClass(p.cost)}"><span>COSTO</span><b>${p.cost}</b></div><div class="${fa2MetricClass(p.flexibility)}"><span>FLESSIBILITÀ</span><b>${p.flexibility}</b></div><div class="${fa2MetricClass(p.scarcityRisk,true)}"><span>SCARSITÀ</span><b>${p.scarcityRisk}</b></div><div class="${fa2MetricClass(p.regulation)}"><span>REGOLAMENTO</span><b>${p.regulation}</b></div></div>`;
@@ -3714,7 +3777,7 @@ function fa2RenderStrategyResult(result){
   const secondary=result.secondary?`<div class="fa2-bridge"><b>Secondo modulo:</b> ${result.secondary.module.name} · ${result.secondary.score}/100 · sinergia ${result.synergy||0}%${result.bridges?.length?`<br><b>Ruoli ponte:</b> ${result.bridges.slice(0,7).map(x=>x.role).join(" · ")}`:""}</div>`:"";
   const ranking=result.mode==="auto"?`<div class="fa2-ranking"><b>Classifica moduli dal Listone</b>${result.ranked.slice(0,8).map((x,i)=>`<div class="fa2-ranking-row alpha2"><i>${i+1}</i><div><b>${x.module.name}</b><small>Tit ${x.starter}% · Scar ${x.scarcityRisk} · Prof ${x.depth}</small></div><span>${x.score}</span></div>`).join("")}</div>`:"";
   const scopeLabel=result?.profile?.scope==="live"?"MERCATO LIVE":"LISTONE COMPLETO";
-  return `<div class="fa2-result"><div class="fa2-result-head"><div><span>${result.mode==="auto"?"AUTO · COPPIA CONSIGLIATA":result.mode==="dual"?"STRATEGIA DOPPIO MODULO":"STRATEGIA MONO MODULO"}</span><b>${p.module.name}${result.secondary?` + ${result.secondary.module.name}`:""}</b><small>${scopeLabel}${result.secondary?` · sinergia ${result.synergy||0}%`:""}</small></div><b class="fa2-score">${headlineScore}<small>/100</small></b></div>${kpis}${fa2RenderExplanation(p)}${budget}${critical}${slotLab}${savedPlan}${secondary}${ranking}</div>`;
+  return `<div class="fa2-result">${advisorHTML}<div class="fa2-result-head"><div><span>${result.mode==="auto"?"AUTO · COPPIA CONSIGLIATA":result.mode==="dual"?"STRATEGIA DOPPIO MODULO":"STRATEGIA MONO MODULO"}</span><b>${p.module.name}${result.secondary?` + ${result.secondary.module.name}`:""}</b><small>${scopeLabel}${result.secondary?` · sinergia ${result.synergy||0}%`:""}</small></div><b class="fa2-score">${headlineScore}<small>/100</small></b></div>${kpis}${fa2RenderExplanation(p)}${budget}${critical}${slotLab}${savedPlan}${secondary}${ranking}</div>`;
 }
 function renderStrategyView(){
   const root=$("#strategyView");if(!root)return;
@@ -3722,17 +3785,17 @@ function renderStrategyView(){
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v35")||"null")}catch{}
   const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.8</span><h2>Strategia</h2><p>Il Budget Runtime ricalcola budget slot e MAX strategici dopo ogni assegnazione, proteggendo il credito minimo per completare la rosa e tenendo conto dell’inflazione osservata. Il MAX LIVE resta indipendente.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.9</span><h2>Strategia</h2><p>Il Module Switch Advisor confronta gli 11 moduli usando acquisti, mercato residuo e budget. Suggerisce un cambio solo oltre una soglia significativa e non modifica mai automaticamente il Piano Strategia.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
     <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid"><button class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>
     <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button><button id="fa2EditReg" class="ghost fa2-edit-reg" type="button">Modifica regolamento</button></div>
     <div id="fa2StrategyResult">${fa2RenderStrategyResult(cached)}</div>`;
-  $$("[data-fa2-mode]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),mode:btn.dataset.fa2Mode});sessionStorage.removeItem("fa2_strategy_result_v35");renderStrategyView()});
-  $$("[data-fa2-scope]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),scope:btn.dataset.fa2Scope});sessionStorage.removeItem("fa2_strategy_result_v35");renderStrategyView()});
-  $("#fa2Primary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),primary:e.target.value});
-  $("#fa2Secondary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});
+  $$("[data-fa2-mode]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),mode:btn.dataset.fa2Mode});fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");renderStrategyView()});
+  $$("[data-fa2-scope]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),scope:btn.dataset.fa2Scope});fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");renderStrategyView()});
+  $("#fa2Primary").onchange=e=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),primary:e.target.value});fa2InvalidateModuleAdvisor()};
+  $("#fa2Secondary").onchange=e=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});fa2InvalidateModuleAdvisor()};
   $("#fa2EditReg").onclick=()=>switchView("settingsView");
   $("#fa2RefreshPI").onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent="Aggiorno…";await refreshPlayerIntelligenceGlobal();};
   $("#fa2Generate").onclick=async e=>{
@@ -3742,6 +3805,7 @@ function renderStrategyView(){
       const buildFn=FA2Strategy.buildAsync||((profile,players,regulation,context)=>Promise.resolve(FA2Strategy.build(profile,players,regulation,context)));
       const result=await buildFn(current,allPlayers,reg,fa2StrategyContext(reg,current.scope),(done,total)=>{btn.textContent=current.mode==="auto"?`ANALIZZO ${done}/${total}…`:`CALCOLO ${done}/${total}…`});
       sessionStorage.setItem("fa2_strategy_result_v35",JSON.stringify(result));
+      fa2InvalidateModuleAdvisor();
       renderStrategyView();
     }catch(error){
       console.error("Strategy analysis failed",error);
@@ -3751,12 +3815,13 @@ function renderStrategyView(){
   };
   $$('[data-fa2-slot-open]').forEach(btn=>btn.onclick=()=>fa2OpenSlotAnalysis(btn.dataset.fa2SlotOpen));
 }
-window.addEventListener("fa2:regulation-changed",()=>{sessionStorage.removeItem("fa2_strategy_result_v35");if(state.view==="strategyView")renderStrategyView()});
+window.addEventListener("fa2:regulation-changed",()=>{fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");if(state.view==="strategyView")renderStrategyView()});
 window.addEventListener("fa2:strategy-slots-changed",()=>{
   if(state.view==="strategyView")renderStrategyView();
   if($("#liveDialog")?.open)renderAuctionLive();
 });
 window.addEventListener("fa2:player-intelligence-updated",()=>{
+  fa2InvalidateModuleAdvisor();
   sessionStorage.removeItem("fa2_strategy_result_v35");
   const d=$("#playerDialog"),id=d?.dataset?.playerId;
   if(d?.open&&id)openPlayer(id);

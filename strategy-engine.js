@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3.8
+/* FantaAsta2.0 — Strategy Engine alpha 3.9
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -187,6 +187,124 @@
     const overallInflation=Number(input.overallInflation)||0;
     const status=remaining<reserve?"INSUFFICIENT":planBudget<desiredTotal?"PROTETTO":"OK";
     return {remaining,missing,minBid,reserve,reserveAfterNext,free,maxNext,reserveOutsidePlan,planCapacity,desiredTotal,allocated,planScale:desiredTotal?allocated/desiredTotal:1,overallInflation,status,phases,slots:slotBudgets};
+  }
+
+  /* A3.9 — Module Switch Advisor.
+     Valuta tutti i moduli usando insieme acquisti già fatti e mercato ancora
+     disponibile. La decisione resta solo consultiva; soglia e isteresi evitano
+     cambi di consiglio causati da scostamenti marginali. */
+  function ownedModuleFit(module,owned,env){
+    const slots=module?.slots||[],size=1<<slots.length;
+    let dp=new Float64Array(size);dp.fill(-1);dp[0]=0;
+    const eligible=(owned||[]).filter(p=>slots.some(roles=>compatible(p,roles)));
+    eligible.forEach(p=>{
+      const compatibleSlots=[];
+      slots.forEach((roles,i)=>{if(compatible(p,roles))compatibleSlots.push(i)});
+      if(!compatibleSlots.length)return;
+      const quality=clamp(playerMetrics(p,env).intelligence),next=dp.slice();
+      for(let mask=0;mask<size;mask++){
+        const current=dp[mask];if(current<0)continue;
+        compatibleSlots.forEach(i=>{
+          const bit=1<<i;if(mask&bit)return;
+          const nextMask=mask|bit,value=current+10000+quality;
+          if(value>next[nextMask])next[nextMask]=value;
+        });
+      }
+      dp=next;
+    });
+    let best=0;
+    for(let i=1;i<size;i++)if(dp[i]>best)best=dp[i];
+    const matched=Math.min(slots.length,Math.floor(best/10000));
+    const qualitySum=Math.max(0,best-matched*10000);
+    const denominator=Math.max(1,Math.min((owned||[]).length,slots.length));
+    return {
+      matched,total:slots.length,ownedCount:(owned||[]).length,
+      useRate:(owned||[]).length?round(matched/denominator*100):50,
+      coverage:round(matched/Math.max(1,slots.length)*100),
+      quality:matched?round(qualitySum/matched):50
+    };
+  }
+  function moduleAdvisorRows(input={}){
+    const players=input.players||[],reg=input.reg||{},ctx=input.ctx||{};
+    const isOwned=typeof ctx.isOwned==="function"?ctx.isOwned:()=>false;
+    const isMarketAvailable=typeof ctx.isMarketAvailable==="function"?ctx.isMarketAvailable:p=>isAvailable(p,ctx);
+    const owned=players.filter(p=>isOwned(p));
+    const ownedIds=new Set(owned.map(p=>String(p?.id??"")));
+    const pool=[],seen=new Set();
+    players.forEach(p=>{
+      const id=String(p?.id??"");if(!id||seen.has(id))return;
+      const eligible=ownedIds.has(id)||(!ctx.isEligible||ctx.isEligible(p));
+      if(eligible&&(ownedIds.has(id)||isMarketAvailable(p))){seen.add(id);pool.push(p)}
+    });
+    const projectionCtx={...ctx,isAssigned:()=>false,isEligible:p=>ownedIds.has(String(p?.id??""))||(!ctx.isEligible||ctx.isEligible(p))};
+    const env=environment(pool,reg,projectionCtx),progress=clamp(owned.length/11,0,1);
+    const freeBudget=Math.max(0,Number(ctx.freeBudget??reg?.budget?.initial)||0);
+    const rows=MODULES.map(module=>{
+      const market=moduleScore(module,pool,reg,projectionCtx,env),fit=ownedModuleFit(module,owned,env);
+      const unfilled=Math.max(0,11-fit.matched);
+      const estimatedCompletion=round(Number(market.xiCost||0)*unfilled/11);
+      const budgetHealth=estimatedCompletion<=0?100:round(clamp(freeBudget/estimatedCompletion*100));
+      const ownWeight=.20+.35*progress,marketWeight=.65-.35*progress;
+      const score=round(clamp(market.score*marketWeight+fit.useRate*ownWeight+fit.quality*.10+budgetHealth*.05));
+      return {module,score,marketScore:market.score,fit,budgetHealth,estimatedCompletion,market};
+    }).sort((a,b)=>b.score-a.score||b.fit.matched-a.fit.matched||b.marketScore-a.marketScore||a.module.id.localeCompare(b.module.id));
+    return {rows,ownedCount:owned.length,marketCount:pool.length-owned.length};
+  }
+  function advisorSecondary(primary,rows,preferredIds=[]){
+    const candidates=(rows||[]).filter(x=>x.module.id!==primary?.module?.id).map(row=>{
+      const synergy=moduleSimilarity(primary.module,row.module);
+      return {...row,synergy,pairScore:round(row.score*.82+synergy*.18)};
+    }).sort((a,b)=>b.pairScore-a.pairScore||b.score-a.score||a.module.id.localeCompare(b.module.id));
+    const best=candidates[0]||null;
+    for(const id of preferredIds.filter(Boolean)){
+      const preferred=candidates.find(x=>x.module.id===id);
+      if(preferred&&best&&preferred.pairScore>=best.pairScore-2)return preferred;
+    }
+    return best;
+  }
+  function adviseModuleSwitch(input={}){
+    const runtime=moduleAdvisorRows(input),rows=runtime.rows;
+    const requestedCurrent=String(input.currentPrimaryId||DEFAULT_PROFILE.primary);
+    const current=rows.find(x=>x.module.id===requestedCurrent)||rows.find(x=>x.module.id===DEFAULT_PROFILE.primary)||rows[0];
+    const rawBest=rows[0]||current,previous=input.previous||{};
+    const marketEvents=Math.max(0,Number(input.marketEvents)||0),evidence=runtime.ownedCount+Math.min(12,marketEvents)*.35;
+    const enterThreshold=Math.max(1,Number(input.enterThreshold)||(evidence<3?8:evidence<7?6:5));
+    const releaseThreshold=Math.max(1,Number(input.releaseThreshold)||Math.max(2,enterThreshold-3));
+    const challengerGap=Math.max(1,Number(input.challengerGap)||2);
+    const validPrevious=String(previous.currentPrimaryId||"")===current.module.id;
+    const previousRow=validPrevious&&previous.status==="SWITCH"?rows.find(x=>x.module.id===String(previous.recommendedPrimaryId||"")):null;
+    const rawDelta=rawBest&&current?rawBest.score-current.score:0;
+    let recommended=null,hysteresisHeld=false;
+    if(previousRow&&previousRow.module.id!==current.module.id&&previousRow.score-current.score>=releaseThreshold){
+      recommended=previousRow;hysteresisHeld=true;
+      if(rawBest.module.id!==previousRow.module.id&&rawBest.module.id!==current.module.id&&rawBest.score-previousRow.score>=challengerGap&&rawDelta>=enterThreshold){
+        recommended=rawBest;hysteresisHeld=false;
+      }
+    }else if(rawBest.module.id!==current.module.id&&rawDelta>=enterThreshold){
+      recommended=rawBest;
+    }
+    const status=recommended?"SWITCH":"KEEP",primary=recommended||current;
+    const secondary=advisorSecondary(primary,rows,[validPrevious?previous.recommendedSecondaryId:"",input.currentSecondaryId]);
+    const delta=recommended?recommended.score-current.score:Math.max(0,rawDelta);
+    const confidence=round(clamp(34+Math.min(11,runtime.ownedCount)*4+Math.min(12,marketEvents)*1.5+Math.abs(delta)*2,35,95));
+    const currentNeed=Math.min(runtime.ownedCount,11);
+    const reasons=status==="SWITCH"
+      ? [
+          `${primary.module.name} migliora l'indice runtime di ${delta} punti`,
+          `${primary.fit.matched}/${currentNeed} acquisti compatibili con l'XI`,
+          `mercato residuo ${primary.marketScore}/100 · completamento stimato ${primary.estimatedCompletion} cr`
+        ]
+      : [
+          rawBest.module.id===current.module.id?`${current.module.name} resta il modulo più efficiente`:`vantaggio di ${rawDelta} punti sotto la soglia ${enterThreshold}`,
+          `${current.fit.matched}/${currentNeed} acquisti compatibili con l'XI`,
+          `isteresi attiva: il consiglio cambia solo oltre una soglia significativa`
+        ];
+    return {
+      version:"A3.9",status,currentPrimaryId:current.module.id,current,currentSecondaryId:String(input.currentSecondaryId||""),
+      recommendedPrimaryId:primary.module.id,recommendedPrimary:primary,recommendedSecondaryId:secondary?.module?.id||"",recommendedSecondary:secondary,
+      rawBestId:rawBest?.module?.id||current.module.id,rawDelta,delta,enterThreshold,releaseThreshold,hysteresisHeld,confidence,
+      ownedCount:runtime.ownedCount,marketCount:runtime.marketCount,reasons,ranking:rows.slice(0,5)
+    };
   }
 
   function loadProfile(){
@@ -542,5 +660,5 @@
     const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
     return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),SLOT_STATES,SLOT_PLAYER_STATES,SLOT_STATE_LABELS,loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot,resolveSlotState,resolvePlanSlots,rebalanceBudget,dynamicCandidateCap};
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),SLOT_STATES,SLOT_PLAYER_STATES,SLOT_STATE_LABELS,loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity,analyseSlot,resolveSlotState,resolvePlanSlots,rebalanceBudget,dynamicCandidateCap,adviseModuleSwitch};
 })();
