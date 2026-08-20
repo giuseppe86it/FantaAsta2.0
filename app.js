@@ -2585,7 +2585,7 @@ function fa2PlayerIntelligenceHTML(p){
     <div class="pi-stats-grid">${stats.map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("")}</div>
     <div class="pi-history-summary"><b>MEDIA PESATA ULTIME STAGIONI</b><span>${fa2StatInt(w.minutes)} min eq. · rating ${fa2StatValue(w.rating,2)} · G+A/90 ${fa2StatValue(w.ga90,2)} · score ${fa2StatValue(data.score,0)}/100</span></div>
     ${historyRows?`<div class="pi-seasons"><b>STORICO</b>${historyRows}</div>`:""}
-    <div class="pi-source-note">Fonte storica Alpha 3.1: ${esc(source)}. Titolarità probabile e Listone restano alimentati dai feed Fantacalcio già presenti.</div>
+    <div class="pi-source-note">Fonte storica Alpha 3.2.1: ${esc(source)}. Titolarità probabile e Listone restano alimentati dai feed Fantacalcio già presenti.</div>
   </section>`;
 }
 async function refreshPlayerIntelligenceProfile(id){
@@ -3270,7 +3270,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.2").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.3.2.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 2 — Regulation + Strategy Intelligence
@@ -3312,7 +3312,7 @@ function renderStrategyView(){
   const profile=FA2Strategy.loadProfile(),reg=FA2Regulation.load(),sum=FA2Regulation.summary(reg);
   let cached=null;try{cached=JSON.parse(sessionStorage.getItem("fa2_strategy_result_v21")||"null")}catch{}
   const piStatus=window.FA2PlayerIntelligence?.status?.()||{label:"NON CARICATO",count:0,className:"missing"};
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · PLAYER + STRATEGY INTELLIGENCE α3.2.1</span><h2>Strategia</h2><p>Il motore pesa qualità, titolarità LIVE, storico prestazionale, profondità, costo, scarsità, flessibilità Mantra e regole della lega. Durante l'alpha non sostituisce ancora Asta Live A/B.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE</span><b>${esc(piStatus.label)}</b><small>${piStatus.count||0} giocatori · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha2"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
@@ -3325,7 +3325,20 @@ function renderStrategyView(){
   $("#fa2Secondary").onchange=e=>FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),secondary:e.target.value});
   $("#fa2EditReg").onclick=()=>switchView("settingsView");
   $("#fa2RefreshPI").onclick=async e=>{e.currentTarget.disabled=true;e.currentTarget.textContent="Aggiorno…";await refreshPlayerIntelligenceGlobal();};
-  $("#fa2Generate").onclick=()=>{const current=FA2Strategy.loadProfile(),result=FA2Strategy.build(current,allPlayers,reg,fa2StrategyContext(reg,current.scope));sessionStorage.setItem("fa2_strategy_result_v21",JSON.stringify(result));renderStrategyView()};
+  $("#fa2Generate").onclick=async e=>{
+    const btn=e.currentTarget,current=FA2Strategy.loadProfile();
+    const original=btn.textContent;btn.disabled=true;btn.textContent=current.mode==="auto"?"ANALIZZO 0/11…":"CALCOLO…";
+    try{
+      const buildFn=FA2Strategy.buildAsync||((profile,players,regulation,context)=>Promise.resolve(FA2Strategy.build(profile,players,regulation,context)));
+      const result=await buildFn(current,allPlayers,reg,fa2StrategyContext(reg,current.scope),(done,total)=>{btn.textContent=current.mode==="auto"?`ANALIZZO ${done}/${total}…`:`CALCOLO ${done}/${total}…`});
+      sessionStorage.setItem("fa2_strategy_result_v21",JSON.stringify(result));
+      renderStrategyView();
+    }catch(error){
+      console.error("Strategy analysis failed",error);
+      btn.disabled=false;btn.textContent=original;
+      alert(`Analisi non completata: ${error?.message||error}`);
+    }
+  };
 }
 window.addEventListener("fa2:regulation-changed",()=>{sessionStorage.removeItem("fa2_strategy_result_v21");if(state.view==="strategyView")renderStrategyView()});
 window.addEventListener("fa2:player-intelligence-updated",()=>{

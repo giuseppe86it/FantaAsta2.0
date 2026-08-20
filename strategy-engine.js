@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Strategy Engine alpha 3
+/* FantaAsta2.0 — Strategy Engine alpha 3.2.1
    Strategy Score con normalizzazione PER SLOT + Player Intelligence storico:
    qualità, titolarità LIVE, performance, profondità, costo, flessibilità,
    regolamento e scarsità reale. */
@@ -57,7 +57,14 @@
     const maxFvm=Math.max(1,...available.map(p=>Number(p?.fvm)||0));
     const maxPrice=Math.max(1,...available.map(p=>basePrice(p,ctx)));
     const underRules=(reg?.underRules||[]).filter(x=>x.enabled&&Number(x.min)>0);
-    return {available,maxFvm,maxPrice,underRules,reg,ctx};
+    return {available,maxFvm,maxPrice,underRules,reg,ctx,piCache:new Map(),candidatePoolCache:new Map()};
+  }
+  function cachedPlayerIntelligence(p,env){
+    const key=String(p?.id??p?.name??"");
+    if(env.piCache?.has(key))return env.piCache.get(key);
+    const value=env.ctx?.playerIntelligence?env.ctx.playerIntelligence(p):null;
+    env.piCache?.set(key,value);
+    return value;
   }
   function playerMetrics(p,env,norm=null){
     const fvm=Math.max(0,Number(p?.fvm)||0),price=basePrice(p,env.ctx),starter=starterProb(p,env.ctx),roles=roleTokens(p);
@@ -69,7 +76,7 @@
     const flex=clamp((roles.length-1)*32+(roles.length>=3?8:0));
     const underMatches=env.underRules.filter(r=>playerIsUnder(p,r,env.ctx)).length;
     const youth=env.underRules.length?100*underMatches/env.underRules.length:50;
-    const piRaw=env.ctx?.playerIntelligence?env.ctx.playerIntelligence(p):null;
+    const piRaw=cachedPlayerIntelligence(p,env);
     const pi=typeof piRaw==="object"?piRaw:null;
     const historyScore=clamp(Number(pi?.score||0));
     const historyReliability=clamp(Number(pi?.reliability||0));
@@ -82,11 +89,15 @@
     return {intelligence,baseIntelligence,historyScore,historyReliability,starter,flex,youth,fvmScore,pricePower,efficiency,price,fvm};
   }
   function slotCandidatePool(roles,env){
+    const cacheKey=roles.slice().sort().join("/");
+    if(env.candidatePoolCache?.has(cacheKey))return env.candidatePoolCache.get(cacheKey);
     const pool=env.available.filter(p=>compatible(p,roles));
     const maxFvm=Math.max(1,...pool.map(p=>Number(p?.fvm)||0));
     const maxPrice=Math.max(1,...pool.map(p=>basePrice(p,env.ctx)));
-    return pool.map(p=>({p,m:playerMetrics(p,env,{maxFvm,maxPrice})}))
+    const ranked=pool.map(p=>({p,m:playerMetrics(p,env,{maxFvm,maxPrice})}))
       .sort((a,b)=>b.m.intelligence-a.m.intelligence||b.m.starter-a.m.starter||b.m.fvm-a.m.fvm);
+    env.candidatePoolCache?.set(cacheKey,ranked);
+    return ranked;
   }
   function slotKey(roles){return roles.slice().sort().join("/")}
   function demandFor(module,roles){const key=slotKey(roles);return module.slots.filter(x=>slotKey(x)===key).length}
@@ -169,8 +180,8 @@
     const pressure=ratio<=.48?95:ratio<=.65?88:ratio<=.82?76:ratio<=1?60:Math.max(25,60-(ratio-1)*80);
     return {score:round(clamp(pressure*.55+efficiency*.45)),xiCost:round(xiCost),ratio};
   }
-  function moduleScore(module,players,reg,ctx){
-    const env=environment(players,reg,ctx),slotRows=analyseSlots(module,env),selected=bestXI(module,slotRows,env);
+  function moduleScore(module,players,reg,ctx,sharedEnv=null){
+    const env=sharedEnv||environment(players,reg,ctx),slotRows=analyseSlots(module,env),selected=bestXI(module,slotRows,env);
     const coverage=round(selected.length/module.slots.length*100);
     const qualityXI=round(avg(selected.map(x=>x.m.intelligence)));
     const starterXI=round(avg(selected.map(x=>x.m.starter)));
@@ -211,7 +222,20 @@
     if(!warnings.length)warnings.push("Nessuna criticità grave: monitorare comunque i prezzi reali");
     return {strengths,warnings,priority:x.critical.slice(0,3).map(r=>r.roles.join("/"))};
   }
-  function rankModules(players,reg,ctx){return MODULES.map(m=>moduleScore(m,players,reg,ctx)).sort((a,b)=>b.score-a.score||a.scarcityRisk-b.scarcityRisk||b.starter-a.starter)}
+  function sortRanked(rows){return rows.sort((a,b)=>b.score-a.score||a.scarcityRisk-b.scarcityRisk||b.starter-a.starter)}
+  function rankModules(players,reg,ctx){
+    const env=environment(players,reg,ctx);
+    return sortRanked(MODULES.map(m=>moduleScore(m,players,reg,ctx,env)));
+  }
+  async function rankModulesAsync(players,reg,ctx,onProgress){
+    const env=environment(players,reg,ctx),rows=[];
+    for(let i=0;i<MODULES.length;i++){
+      rows.push(moduleScore(MODULES[i],players,reg,ctx,env));
+      if(onProgress)onProgress(i+1,MODULES.length,MODULES[i]);
+      await new Promise(resolve=>setTimeout(resolve,0));
+    }
+    return sortRanked(rows);
+  }
   function moduleSimilarity(a,b){
     const tokens=m=>m.slots.slice(1).map(r=>slotKey(r));
     const A=tokens(a),B=tokens(b),used=new Set();let matches=0;
@@ -250,17 +274,35 @@
     const A=a.slots.slice(1).flat(),B=b.slots.slice(1).flat(),all=[...new Set(A.concat(B))];
     return all.map(role=>({role,a:A.filter(x=>x===role).length,b:B.filter(x=>x===role).length})).filter(x=>x.a&&x.b).sort((x,y)=>(y.a+y.b)-(x.a+x.b));
   }
+  function finalizeAuto(p,ranked,reg){
+    const pair=bestAutoPair(ranked);
+    p.primary=pair.primary?.module.id||"433";p.secondary=pair.secondary?.module.id||"4231";
+    return {profile:saveProfile(p),mode:"auto",ranked,primary:pair.primary,secondary:pair.secondary,pairScore:pair.score,synergy:pair.synergy,budget:macroWeights(pair.primary,reg),bridges:pair.secondary?bridgeRoles(pair.primary.module,pair.secondary.module):[]};
+  }
   function build(profile,players,reg,ctx){
     const p={...DEFAULT_PROFILE,...profile,lastGeneratedAt:Date.now(),schema:2};
-    if(p.mode==="auto"){
-      const ranked=rankModules(players,reg,ctx),pair=bestAutoPair(ranked);
-      p.primary=pair.primary?.module.id||"433";p.secondary=pair.secondary?.module.id||"4231";
-      return {profile:saveProfile(p),mode:"auto",ranked,primary:pair.primary,secondary:pair.secondary,pairScore:pair.score,synergy:pair.synergy,budget:macroWeights(pair.primary,reg),bridges:pair.secondary?bridgeRoles(pair.primary.module,pair.secondary.module):[]};
-    }
-    const primary=moduleScore(moduleById(p.primary),players,reg,ctx),secondary=p.mode==="dual"?moduleScore(moduleById(p.secondary),players,reg,ctx):null;
+    if(p.mode==="auto")return finalizeAuto(p,rankModules(players,reg,ctx),reg);
+    const env=environment(players,reg,ctx);
+    const primary=moduleScore(moduleById(p.primary),players,reg,ctx,env);
+    const secondary=p.mode==="dual"?moduleScore(moduleById(p.secondary),players,reg,ctx,env):null;
     const synergy=secondary?moduleSimilarity(primary.module,secondary.module):0;
     const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
     return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
   }
-  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,moduleScore,build,macroWeights,moduleSimilarity};
+  async function buildAsync(profile,players,reg,ctx,onProgress){
+    const p={...DEFAULT_PROFILE,...profile,lastGeneratedAt:Date.now(),schema:2};
+    if(window.FA2PlayerIntelligence?.prime)window.FA2PlayerIntelligence.prime(players);
+    await new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+    if(p.mode==="auto")return finalizeAuto(p,await rankModulesAsync(players,reg,ctx,onProgress),reg);
+    const env=environment(players,reg,ctx);
+    const primary=moduleScore(moduleById(p.primary),players,reg,ctx,env);
+    if(onProgress)onProgress(1,p.mode==="dual"?2:1,primary.module);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    const secondary=p.mode==="dual"?moduleScore(moduleById(p.secondary),players,reg,ctx,env):null;
+    if(secondary&&onProgress)onProgress(2,2,secondary.module);
+    const synergy=secondary?moduleSimilarity(primary.module,secondary.module):0;
+    const pairScore=secondary?round(primary.score*.50+secondary.score*.34+synergy*.16):primary.score;
+    return {profile:saveProfile(p),mode:p.mode,primary,secondary,pairScore,synergy,budget:macroWeights(primary,reg),bridges:secondary?bridgeRoles(primary.module,secondary.module):[]};
+  }
+  window.FA2Strategy={STORAGE_KEY,LEGACY_KEY,MODULES,DEFAULT_PROFILE:clone(DEFAULT_PROFILE),loadProfile,saveProfile,moduleById,rankModules,rankModulesAsync,moduleScore,build,buildAsync,macroWeights,moduleSimilarity};
 })();

@@ -1,4 +1,4 @@
-/* FantaAsta2.0 — Player Intelligence Engine alpha 3.2
+/* FantaAsta2.0 — Player Intelligence Engine alpha 3.2.1
    Feed locale sincronizzato da GitHub Actions. Il browser NON esegue scraping:
    scarica soltanto player-intelligence.json e usa una cache locale sicura. */
 (function(){
@@ -8,6 +8,10 @@
   const FEED_URL="./player-intelligence.json";
   const AUTO_CHECK_MINUTES=360; // 6 ore
   let feed=loadCached();
+  let tokenIndex=null;
+  let surnameIndex=null;
+  let lookupCache=new Map();
+  let indexedPlayersRef=null;
 
   function normalizeName(name){
     return String(name||"")
@@ -24,7 +28,14 @@
   function loadCached(){
     try{const x=JSON.parse(localStorage.getItem(STORAGE_KEY)||"null");return validFeed(x)?x:emptyFeed()}catch{return emptyFeed()}
   }
-  function saveCached(x){feed=x;localStorage.setItem(STORAGE_KEY,JSON.stringify(x));return x}
+  function resetIndexes(){tokenIndex=null;surnameIndex=null;lookupCache=new Map();indexedPlayersRef=null}
+  function saveCached(x){
+    feed=x;resetIndexes();
+    try{localStorage.setItem(STORAGE_KEY,JSON.stringify(x))}catch(error){
+      console.warn("Player Intelligence cache locale non salvata:",error);
+    }
+    return x
+  }
   function ageMinutes(){
     const t=Date.parse(feed?.generatedAt||"");
     return Number.isFinite(t)?Math.max(0,(Date.now()-t)/60000):Infinity;
@@ -40,31 +51,52 @@
     if(age<=7*24*60)return {label:"DATI RECENTI",className:"cached",ageMinutes:age,count};
     return {label:"DATI DATATI",className:"stale",ageMinutes:age,count};
   }
-  function buildTokenIndex(){
-    const idx=new Map();
-    Object.values(feed?.players||{}).forEach(x=>{
-      const keys=[x?.tokenKey,...(x?.aliasTokenKeys||[]),...(x?.aliases||[]).map(tokenKey)].filter(Boolean);
-      keys.forEach(k=>{if(!idx.has(k))idx.set(k,x)});
+  function ensureIndexes(){
+    const players=feed?.players||{};
+    if(indexedPlayersRef===players&&tokenIndex&&surnameIndex)return;
+    tokenIndex=new Map();
+    surnameIndex=new Map();
+    lookupCache=new Map();
+    const addUnique=(map,key,value)=>{
+      if(!key)return;
+      if(!map.has(key))map.set(key,value);
+      else if(map.get(key)!==value)map.set(key,null);
+    };
+    Object.values(players).forEach(x=>{
+      const aliases=[x?.name,...(x?.aliases||[])].filter(Boolean);
+      const keys=[x?.tokenKey,...(x?.aliasTokenKeys||[]),...aliases.map(tokenKey)].filter(Boolean);
+      keys.forEach(k=>addUnique(tokenIndex,k,x));
+      aliases.forEach(a=>{
+        const ts=String(a||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().split(/\s+/).filter(Boolean);
+        const surname=ts[ts.length-1];
+        if(surname&&surname.length>=4)addUnique(surnameIndex,surname,x);
+      });
     });
-    return idx;
+    indexedPlayersRef=players;
   }
   function get(player){
     if(!player)return null;
-    const key=normalizeName(player.name||player);
-    let out=feed?.players?.[key]||null;
-    if(out)return out;
     const rawName=player.name||player;
+    const key=normalizeName(rawName);
+    if(lookupCache.has(key))return lookupCache.get(key);
+    let out=feed?.players?.[key]||null;
+    if(out){lookupCache.set(key,out);return out}
+    ensureIndexes();
     const tk=tokenKey(rawName);
-    if(tk){const byToken=buildTokenIndex().get(tk);if(byToken)return byToken}
-    // Fallback prudente: cognome univoco nel feed. Utile quando il Listone abbrevia il nome.
+    if(tk){
+      const byToken=tokenIndex.get(tk)||null;
+      if(byToken){lookupCache.set(key,byToken);return byToken}
+    }
     const tokens=String(rawName||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().split(/\s+/).filter(Boolean);
     const surname=tokens[tokens.length-1];
     if(surname&&surname.length>=4){
-      const matches=Object.values(feed?.players||{}).filter(x=>(x?.aliases||[x?.name]).some(a=>{const ts=String(a||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim().split(/\s+/).filter(Boolean);return ts.includes(surname)}));
-      if(matches.length===1)return matches[0];
+      const bySurname=surnameIndex.get(surname)||null;
+      if(bySurname){lookupCache.set(key,bySurname);return bySurname}
     }
+    lookupCache.set(key,null);
     return null;
   }
+  function prime(players=[]){ensureIndexes();(players||[]).forEach(p=>get(p));return lookupCache.size}
   function score(player){return Number(get(player)?.score||0)||0}
   function reliability(player){return Number(get(player)?.reliability||0)||0}
   function trend(player){return Number(get(player)?.trend||0)||0}
@@ -102,5 +134,5 @@
     return d.toLocaleString("it-IT",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
   }
 
-  window.FA2PlayerIntelligence={SCHEMA,STORAGE_KEY,FEED_URL,getFeed:()=>feed,get,score,reliability,trend,status,ageMinutes,formatAge,generatedLabel,refresh,maybeRefresh,normalizeName,tokenKey};
+  window.FA2PlayerIntelligence={SCHEMA,STORAGE_KEY,FEED_URL,getFeed:()=>feed,get,score,reliability,trend,status,ageMinutes,formatAge,generatedLabel,refresh,maybeRefresh,normalizeName,tokenKey,prime};
 })();
