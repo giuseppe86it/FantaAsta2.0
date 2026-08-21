@@ -3304,3 +3304,49 @@ body{
 .live-opponent-summary.pressure-alta{border-color:#a33f55;background:#2b1a28}.live-opponent-summary.pressure-alta b{color:#ff8ca2}.live-opponent-summary.pressure-media{border-color:#8c6a28;background:#292316}.live-opponent-summary.pressure-media b{color:#ffc85d}
 .live-competition>div>span{min-width:0;padding-right:6px}.live-competition>div>span small+small{margin-top:2px;color:#8297ae}.live-competition>div>strong{flex:0 0 auto}.live-opponent-note{margin:7px 2px 0;color:#8ea1b7;font-size:9px;line-height:1.4}
 @media(max-width:430px){.opponent-intelligence-banner{padding:13px 14px}.opponent-intelligence-banner b{font-size:15px}.live-opponent-summary{padding:7px;gap:5px}.live-opponent-summary b{font-size:13px}.live-competition-title{align-items:flex-start;flex-direction:column;gap:2px}.live-competition-title small{text-align:left}}
+
+/* =========================================================
+   FantaAsta2.0 Alpha 5 — Auction Copilot Core
+   ========================================================= */
+.fa2-live-copilot{
+  margin:0 0 12px;
+  padding:13px;
+  border:1px solid #31956e;
+  border-radius:17px;
+  background:linear-gradient(145deg,#0d332a 0%,#0c2133 70%,#0b1b2d 100%);
+  box-shadow:inset 0 0 0 1px rgba(69,224,164,.07),0 9px 24px rgba(0,0,0,.18);
+}
+.fa2-live-copilot.promoted{border-color:#e4a62c;background:linear-gradient(145deg,#3a2a12,#103329 58%,#0c2133)}
+.fa2-live-copilot.covered{border-color:#38d797;background:linear-gradient(145deg,#0e382b,#0b2928)}
+.fa2-live-copilot.exhausted{border-color:#b47b27;background:linear-gradient(145deg,#392713,#151f2d)}
+.fa2-live-copilot.market{border-color:#376991;background:linear-gradient(145deg,#102a3e,#0c1e32)}
+.fa2-copilot-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.fa2-copilot-head span{display:block;color:#63e5ae;font-size:9px;font-weight:950;letter-spacing:.09em}
+.fa2-copilot-head b{display:block;margin-top:2px;font-size:14px;line-height:1.15}
+.fa2-copilot-head em{flex:0 0 auto;padding:5px 8px;border:1px solid #2d5c4c;border-radius:999px;background:#102e29;color:#81e9bd;font-size:8px;font-style:normal;font-weight:900;letter-spacing:.06em}
+.fa2-live-copilot.promoted .fa2-copilot-head span,.fa2-live-copilot.promoted .fa2-copilot-player>strong,.fa2-live-copilot.exhausted .fa2-copilot-head span{color:#ffd073}
+.fa2-live-copilot.promoted .fa2-copilot-head em,.fa2-live-copilot.exhausted .fa2-copilot-head em{border-color:#6c5227;background:#302714;color:#ffd073}
+.fa2-copilot-decision{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:10px;margin-top:10px;padding:10px;border:1px solid rgba(80,174,137,.38);border-radius:13px;background:rgba(7,22,34,.55)}
+.fa2-copilot-player{display:flex;align-items:center;gap:8px;min-width:0}
+.fa2-copilot-player>strong{flex:0 0 auto;padding:6px 8px;border-radius:8px;background:#43dc9d;color:#06261b;font-size:8px;letter-spacing:.06em}
+.fa2-copilot-player>div{min-width:0}.fa2-copilot-player>div>b{display:block;overflow:hidden;color:#fff;font-size:18px;line-height:1.1;text-overflow:ellipsis;white-space:nowrap}.fa2-copilot-player>div>small{display:block;margin-top:3px;color:#a7b8ca;font-size:9px;line-height:1.25}
+.fa2-copilot-open{align-self:stretch;min-height:44px;padding:9px 11px;border:0;border-radius:11px;background:#42dc9c;color:#06241a;font-size:10px;font-weight:950;letter-spacing:.035em;white-space:nowrap}
+.fa2-copilot-open:active{transform:scale(.98)}
+.fa2-copilot-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
+.fa2-copilot-metric{min-width:0;padding:8px 7px;border:1px solid #294763;border-radius:11px;background:#11243a;text-align:center}
+.fa2-copilot-metric.strategic{border-color:#2f8c68;background:#123a2e}
+.fa2-copilot-metric span{display:block;color:#9eafc2;font-size:8px;font-weight:800;letter-spacing:.045em}
+.fa2-copilot-metric b{display:block;overflow:hidden;margin-top:3px;color:#f7faff;font-size:15px;line-height:1.08;text-overflow:ellipsis;white-space:nowrap;font-variant-numeric:tabular-nums}
+.fa2-copilot-metric.strategic b{color:#70e8b4}
+.fa2-copilot-metric small{display:block;overflow:hidden;margin-top:2px;color:#93a6ba;font-size:8px;line-height:1.2;text-overflow:ellipsis;white-space:nowrap}
+.fa2-copilot-why{margin-top:8px;padding:9px 10px;border:1px solid #5c5228;border-radius:11px;background:#202719}
+.fa2-copilot-why span{display:block;color:#e7ca79;font-size:8px;font-weight:950;letter-spacing:.08em}.fa2-copilot-why p{margin:3px 0 0;color:#d7ddcf;font-size:9.5px;line-height:1.4}
+.fa2-copilot-covered-note{margin-top:7px;padding:7px 9px;border-radius:9px;background:#11382b;color:#75e6b1;font-size:9px;font-weight:750}
+.fa2-copilot-runtime{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin-top:8px}
+.fa2-copilot-runtime>div{min-width:0;padding:8px 9px;border:1px solid #29445f;border-radius:10px;background:#0d1e32}
+.fa2-copilot-runtime>div.switch{border-color:#b57825;background:#352512}
+.fa2-copilot-runtime span{display:block;color:#9dafc3;font-size:7.5px;font-weight:850;letter-spacing:.045em}.fa2-copilot-runtime b{display:block;overflow:hidden;margin-top:2px;font-size:11px;text-overflow:ellipsis;white-space:nowrap}.fa2-copilot-runtime .switch b{color:#ffc85b}.fa2-copilot-runtime small{display:block;overflow:hidden;margin-top:2px;color:#8fa2b7;font-size:7.5px;line-height:1.25;text-overflow:ellipsis;white-space:nowrap}
+.fa2-live-copilot+.live-search{margin-top:0}
+@media(max-width:390px){
+  .fa2-live-copilot{padding:11px}.fa2-copilot-decision{grid-template-columns:1fr;padding:9px}.fa2-copilot-open{width:100%;min-height:40px}.fa2-copilot-player>div>b{font-size:16px}.fa2-copilot-runtime{grid-template-columns:1fr}.fa2-copilot-runtime b,.fa2-copilot-runtime small{white-space:normal}.fa2-copilot-why p{font-size:9px}
+}
