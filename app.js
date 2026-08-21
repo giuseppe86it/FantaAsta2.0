@@ -2351,6 +2351,57 @@ function fa2AuctionCopilotSnapshot(context=fa2LiveContext("")){
 function fa2CopilotMetricHTML(label,value,detail="",className=""){
   return `<div class="fa2-copilot-metric ${escAttr(className)}"><span>${esc(label)}</span><b>${esc(value)}</b>${detail?`<small>${esc(detail)}</small>`:""}</div>`;
 }
+function fa2BidDecisionForPlayer(p,rawPrice,limits={}){
+  const raw=String(rawPrice??"").trim(),minBid=Math.max(1,Number(limits.minBid)||configuredMinBid());
+  const strategicMax=Math.max(0,Number(limits.strategicMax)||Number(fa2StrategyGuidanceForPlayer(p)?.maxRecommended)||0);
+  const liveMax=Math.max(0,Number(limits.liveMax)||Number(liveMaxForPlayer(p)?.live)||0);
+  const maxPossible=Math.max(0,Number(limits.maxPossible)||Number(teamEconomy(mineTeam())?.maxNext)||0);
+  const caps=[strategicMax?`STRAT ${fmt(strategicMax)}`:"",liveMax?`LIVE ${fmt(liveMax)}`:"",maxPossible?`POSSIBILE ${fmt(maxPossible)}`:""].filter(Boolean).join(" · ");
+  const base={price:0,minBid,strategicMax,liveMax,maxPossible,caps};
+  if(!raw)return {...base,className:"neutral",label:"IN ATTESA",detail:"Inserisci il prezzo che stai valutando. Il dato non viene salvato."};
+  const price=Number(raw),priced={...base,price};
+  if(!Number.isInteger(price)||price<minBid)return {...priced,className:"invalid",label:"PREZZO NON VALIDO",detail:`Inserisci un credito intero, minimo ${fmt(minBid)}.`};
+  if(maxPossible&&price>maxPossible)return {...priced,className:"hard",label:"NON SOSTENIBILE",detail:`Supera il MAX possibile di ${fmt(price-maxPossible)} cr: la rosa non potrebbe essere completata rispettando la riserva.`};
+  if(strategicMax){
+    const strategy=fa2ClassifyStrategyPrice(strategicMax,price),delta=Math.max(0,price-strategicMax);
+    if(strategy.className==="stop")return {...priced,className:"stop",label:"STOP STRATEGICO",detail:`Scostamento forte: +${fmt(delta)} cr oltre il tetto. Potrai forzare l'acquisto solo con la conferma già prevista.`};
+    if(strategy.className==="warn")return {...priced,className:"warn",label:"ATTENZIONE STRATEGIA",detail:`Supera il MAX strategico di ${fmt(delta)} cr. Il piano resta valido, ma l'acquisto richiederà conferma.`};
+    const liveMargin=liveMax-price;
+    return {...priced,className:"go",label:"ENTRO STRATEGIA",detail:`Margine strategico ${fmt(strategicMax-price)} cr${liveMax?` · ${liveMargin>=0?`margine live ${fmt(liveMargin)} cr`:`oltre MAX live di ${fmt(-liveMargin)} cr`}`:""}.`};
+  }
+  if(!liveMax||price<=liveMax)return {...priced,className:"go",label:"ENTRO MAX LIVE",detail:liveMax?`Margine sul mercato corrente: ${fmt(liveMax-price)} cr.`:"Prezzo compatibile con il budget disponibile."};
+  return {...priced,className:"warn",label:"OLTRE MAX LIVE",detail:`Supera il MAX live di ${fmt(price-liveMax)} cr. Il prezzo resta economicamente possibile, ma non è consigliato dal mercato corrente.`};
+}
+function fa2BidDecisionHTML(decision){
+  return `<div id="fa2CopilotBidDecision" class="fa2-copilot-bid-decision ${escAttr(decision.className)}" aria-live="polite"><span>${esc(decision.label)}</span><b>${esc(decision.detail)}</b><small>${esc(decision.caps)}</small></div>`;
+}
+function fa2CopilotBidGuardHTML(snapshot){
+  if(!snapshot?.player||!["target","promoted","market"].includes(snapshot.mode))return "";
+  const limits={
+    minBid:configuredMinBid(),strategicMax:Number(snapshot.strategicMax)||0,
+    liveMax:Number(snapshot.liveMax)||0,maxPossible:Number(snapshot.budget?.maxNext)||0
+  };
+  const initial=fa2BidDecisionForPlayer(snapshot.player,"",limits);
+  return `<div class="fa2-copilot-bid" data-player-id="${escAttr(snapshot.player.id)}" data-strategic-max="${limits.strategicMax}" data-live-max="${limits.liveMax}" data-max-possible="${limits.maxPossible}" data-min-bid="${limits.minBid}">
+    <div class="fa2-copilot-bid-input"><label for="fa2CopilotBidInput"><span>PREZZO DA VALUTARE</span><small>temporaneo · non salvato</small></label><input id="fa2CopilotBidInput" type="number" min="${limits.minBid}" step="1" inputmode="numeric" autocomplete="off" placeholder="cr" aria-label="Prezzo da valutare in crediti"></div>
+    ${fa2BidDecisionHTML(initial)}
+  </div>`;
+}
+function fa2UpdateAuctionCopilotBidGuard(){
+  const root=$(".fa2-copilot-bid"),input=$("#fa2CopilotBidInput"),target=$("#fa2CopilotBidDecision");
+  if(!root||!input||!target)return;
+  const p=getPlayer(root.dataset.playerId);if(!p)return;
+  const decision=fa2BidDecisionForPlayer(p,input.value,{
+    strategicMax:Number(root.dataset.strategicMax)||0,liveMax:Number(root.dataset.liveMax)||0,
+    maxPossible:Number(root.dataset.maxPossible)||0,minBid:Number(root.dataset.minBid)||configuredMinBid()
+  });
+  target.className=`fa2-copilot-bid-decision ${decision.className}`;
+  target.innerHTML=`<span>${esc(decision.label)}</span><b>${esc(decision.detail)}</b><small>${esc(decision.caps)}</small>`;
+}
+function fa2BindAuctionCopilotBidGuard(){
+  const input=$("#fa2CopilotBidInput");if(!input)return;
+  input.addEventListener("input",fa2UpdateAuctionCopilotBidGuard);
+}
 function fa2AuctionCopilotHTML(context){
   const x=fa2AuctionCopilotSnapshot(context),budget=x.budget||{},module=x.module||{};
   let metrics="",action="";
@@ -2392,11 +2443,13 @@ function fa2AuctionCopilotHTML(context){
       fa2CopilotMetricHTML("STATO","NESSUN PROFILO")
     ].join("");
   }
+  const bidGuard=fa2CopilotBidGuardHTML(x);
   const identity=x.player?`${kitHTML(x.player.club,'sm',x.player.club)}<div><b>${esc(x.player.name)}</b><small>${esc(x.detail||`Slot ${x.slotLabel||"—"}`)}</small></div>`:`<div><b>${esc(x.slotLabel||x.status)}</b><small>Fase ${esc(state.auctionPhase)}</small></div>`;
   return `<section class="fa2-live-copilot ${escAttr(x.mode)}">
-    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
+    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.1</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
     <div class="fa2-copilot-decision"><div class="fa2-copilot-player"><strong>${esc(x.badge)}</strong>${identity}</div>${action}</div>
     <div class="fa2-copilot-metrics">${metrics}</div>
+    ${bidGuard}
     <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
     ${x.coveredNote?`<div class="fa2-copilot-covered-note">✓ ${esc(x.coveredNote)}</div>`:""}
     <div class="fa2-copilot-runtime"><div class="${module.switch?"switch":""}"><span>${esc(module.label||"MODULO")}</span><b>${esc(module.value||"—")}</b><small>${esc(module.detail||"")}</small></div><div><span>BUDGET RUNTIME</span><b>${fmt(budget.remaining||0)} cr · ${budget.missing??0} posti</b><small>riserva ${fmt(budget.reserve||0)} · libero ${fmt(budget.free||0)}</small></div></div>
@@ -2419,6 +2472,7 @@ function renderAuctionLive(){
   </div>`;
   $("#closeLiveBtn").onclick=()=>$("#liveDialog").close();
   $("#liveSearchInput").addEventListener("input",e=>updateLiveResults(e.target.value));
+  fa2BindAuctionCopilotBidGuard();
   updateLiveResults("",liveContext);
 }
 function openAuctionLive(){
@@ -3717,7 +3771,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -4061,13 +4115,20 @@ function fa2SaveCurrentSlotPlan(){
   const d=$("#fa2SlotDialog");if(d?.open)d.close();
   if(state.view==="strategyView")renderStrategyView();
 }
+function fa2ClassifyStrategyPrice(cap,price){
+  const safeCap=Math.max(1,Number(cap)||1),n=Number(price),delta=n-safeCap;
+  if(!Number.isFinite(n)||n<=0)return {className:"neutral",delta};
+  if(delta<=0)return {className:"ok",delta};
+  if(n<=safeCap*1.08)return {className:"warn",delta};
+  return {className:"stop",delta};
+}
 function fa2StrategyPriceState(p,price){
   const g=fa2StrategyGuidanceForPlayer(p);if(!g?.maxRecommended)return null;
   const cap=Math.max(1,Number(g.maxRecommended)),n=Number(price),base={...g,cap};
-  if(!Number.isFinite(n)||n<=0)return {...base,className:"neutral",label:`${g.label} · ${g.slot} · MAX strategico ${fmt(cap)}`};
-  const delta=n-cap;
-  if(delta<=0)return {...base,className:"ok",label:`OK STRATEGIA · ${fmt(n)}/${fmt(cap)} cr`};
-  if(n<=cap*1.08)return {...base,className:"warn",label:`ATTENZIONE · +${fmt(delta)} cr sopra MAX strategico`};
+  const result=fa2ClassifyStrategyPrice(cap,n),delta=result.delta;
+  if(result.className==="neutral")return {...base,className:"neutral",label:`${g.label} · ${g.slot} · MAX strategico ${fmt(cap)}`};
+  if(result.className==="ok")return {...base,className:"ok",label:`OK STRATEGIA · ${fmt(n)}/${fmt(cap)} cr`};
+  if(result.className==="warn")return {...base,className:"warn",label:`ATTENZIONE · +${fmt(delta)} cr sopra MAX strategico`};
   return {...base,className:"stop",label:`STOP STRATEGICO · +${fmt(delta)} cr oltre il tetto`};
 }
 function fa2UpdatePurchaseStrategySignal(p,price){
@@ -4136,7 +4197,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
