@@ -3172,3 +3172,14 @@ body{
 .live-target-alert.covered span{color:#55e6aa}
 .fa2-plan-row.rich.covered{background:rgba(22,66,51,.28)}.fa2-plan-row.rich.covered>em{background:#164f39;color:#7ff1bc}.fa2-plan-row.rich.promoted{background:rgba(91,66,22,.24)}.fa2-plan-row.rich.promoted>em{background:#5a4117;color:#ffd078}.fa2-promoted-tag{display:inline!important;margin-left:5px!important;color:#ffd078!important;font-size:7px!important}
 @media(max-width:520px){.live-price-grid.with-strategy{grid-template-columns:repeat(2,1fr)}.live-price-grid.with-strategy>div:last-child{grid-column:span 2}}
+
+/* =========================================================
+   FantaAsta2.0 Alpha 4.2 — Opponent Intelligence
+   ========================================================= */
+.opponent-intelligence-banner{margin:12px 0 16px;border:1px solid #2d8b68;background:linear-gradient(145deg,#0d332a,#0b2230);border-radius:18px;padding:15px 16px;box-shadow:inset 0 0 0 1px rgba(65,226,159,.07)}
+.opponent-intelligence-banner span{display:block;color:var(--accent);font-size:11px;font-weight:900;letter-spacing:.08em}.opponent-intelligence-banner b{display:block;margin:5px 0 4px;font-size:17px;line-height:1.2}.opponent-intelligence-banner small{display:block;color:#a9b8ca;font-size:11px;line-height:1.45}
+.live-competition-title{display:flex;align-items:flex-end;justify-content:space-between;gap:8px}.live-competition-title span{font-weight:900;letter-spacing:.05em}.live-competition-title small{font-size:9px;font-weight:600;text-align:right;letter-spacing:0}
+.live-opponent-summary{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:0 0 7px;padding:9px;border:1px solid #2c4e68;background:#102138;border-radius:12px}.live-opponent-summary>div{min-width:0;background:#152a42;border-radius:9px;padding:8px;text-align:center}.live-opponent-summary span{display:block;color:#aab9cb;font-size:8.5px;font-weight:800;letter-spacing:.04em}.live-opponent-summary b{display:block;margin-top:3px;font-size:14px;color:var(--accent)}.live-opponent-summary>small{grid-column:1/-1;color:#9fb0c4;font-size:9px;text-align:center;line-height:1.35}
+.live-opponent-summary.pressure-alta{border-color:#a33f55;background:#2b1a28}.live-opponent-summary.pressure-alta b{color:#ff8ca2}.live-opponent-summary.pressure-media{border-color:#8c6a28;background:#292316}.live-opponent-summary.pressure-media b{color:#ffc85d}
+.live-competition>div>span{min-width:0;padding-right:6px}.live-competition>div>span small+small{margin-top:2px;color:#8297ae}.live-competition>div>strong{flex:0 0 auto}.live-opponent-note{margin:7px 2px 0;color:#8ea1b7;font-size:9px;line-height:1.4}
+@media(max-width:430px){.opponent-intelligence-banner{padding:13px 14px}.opponent-intelligence-banner b{font-size:15px}.live-opponent-summary{padding:7px;gap:5px}.live-opponent-summary b{font-size:13px}.live-competition-title{align-items:flex-start;flex-direction:column;gap:2px}.live-competition-title small{text-align:left}}

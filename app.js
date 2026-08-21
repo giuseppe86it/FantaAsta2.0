@@ -287,6 +287,11 @@ const INTEL_FAMILIES = [
   {id:"APc",label:"A/Pc",roles:["A","Pc"]},
   {id:"Pc",label:"Pc",roles:["Pc"]}
 ];
+const OPPONENT_ROLE_FAMILIES = [
+  {id:"Por",label:"Por",roles:["Por"]},
+  {id:"EW",label:"E/W",roles:["E","W"]},
+  ...INTEL_FAMILIES
+];
 
 // Gli 11 schemi Mantra ufficiali. Gli slot alternativi sono rappresentati
 // come insiemi di ruoli compatibili; servono per stimare la struttura potenziale
@@ -1233,7 +1238,7 @@ function modulePredictionForTeam(team){
   return {team,econ,ranked:scored,top:scored[0],confidence};
 }
 function missingDemandForPrediction(pred,familyId){
-  const family=familyById(familyId);if(!family)return 0;
+  const family=typeof familyId==="string"?familyById(familyId):familyId;if(!family)return 0;
   let demand=0;
   pred.ranked.forEach(r=>{
     let units=0;
@@ -1261,10 +1266,10 @@ function buildAuctionIntel(){
       const econ=pred.econ;
       const money=clamp(econ.maxNext/350);
       const need=clamp(units/1.5);
-      const pressure=need*(.45+.55*money)*pred.confidence;
-      return {team:t,units,pressure,maxNext:econ.maxNext,pred};
-    }).sort((a,b)=>b.pressure-a.pressure);
-    demand[f.id]={teams:teamRows,totalPressure:teamRows.reduce((a,x)=>a+x.pressure,0),likelyTeams:teamRows.filter(x=>x.pressure>=.22).length};
+      const marketPressure=need*(.45+.55*money)*pred.confidence;
+      return {team:t,units,need,money,marketPressure,pressure:marketPressure,maxNext:econ.maxNext,pred};
+    }).sort((a,b)=>b.marketPressure-a.marketPressure);
+    demand[f.id]={teams:teamRows,totalPressure:teamRows.reduce((a,x)=>a+x.marketPressure,0),likelyTeams:teamRows.filter(x=>x.marketPressure>=.22).length};
   });
   const scarcity={};
   INTEL_FAMILIES.forEach(f=>{
@@ -1301,25 +1306,77 @@ function playerInflation(p,intel=getAuctionIntel()){
   if(stats.length)return stats.reduce((a,x)=>a+x.pct,0)/stats.length;
   return intel.repInflation[p.reparto]?.pct||intel.overallInflation.pct||0;
 }
-function competitionForPlayer(p,intel=getAuctionIntel()){
-  if(!state.league)return [];
-  return opponentTeams().map(team=>{
-    const pred=intel.predictions[team.id];
-    const matching=INTEL_FAMILIES.filter(f=>playerMatchesFamily(p,f));
-    const pressure=matching.length?Math.max(...matching.map(f=>intel.demand[f.id]?.teams.find(x=>x.team.id===team.id)?.pressure||0)):0;
-    return {team,pressure,maxNext:pred?.econ.maxNext||0,module:pred?.top?.module.name||"—",confidence:pred?.confidence||0};
-  }).sort((a,b)=>b.pressure-a.pressure||b.maxNext-a.maxNext);
+function opponentAssignmentShare(){
+  const sold=soldPlayers();if(!sold.length)return 0;
+  const validTeams=new Set(opponentTeams().map(team=>String(team.id)));
+  const assigned=sold.filter(p=>{
+    const sale=state.sold[p.id];
+    return validTeams.has(String(sale?.teamId||""))&&(!sale?.leagueId||sale.leagueId===state.league?.id);
+  }).length;
+  return clamp(assigned/sold.length);
 }
+function opponentRoleNeedsForTeam(team,intel=getAuctionIntel()){
+  const pred=intel.predictions[team.id];if(!pred)return [];
+  return OPPONENT_ROLE_FAMILIES.map(f=>{
+    const row=intel.demand[f.id]?.teams.find(x=>x.team.id===team.id);
+    const units=row?.units??missingDemandForPrediction(pred,f);
+    return {id:f.id,label:f.label,roles:f.roles,units,need:row?.need??clamp(units/1.5)};
+  }).sort((a,b)=>b.need-a.need||a.label.localeCompare(b.label,"it"));
+}
+function opponentTeamDataConfidence(team,intel=getAuctionIntel()){
+  const pred=intel.predictions[team.id],engine=window.FA2OpponentIntelligence;
+  if(typeof engine?.teamDataConfidence!=="function")return clamp(pred?.confidence||0);
+  return engine.teamDataConfidence({
+    phaseIndex:phaseIndex(),
+    rosterTotal:configuredRosterTotal(),
+    rosterCount:pred?.econ?.items?.length||0,
+    moduleConfidence:pred?.confidence||0,
+    assignmentShare:opponentAssignmentShare()
+  });
+}
+/* A4.2 — unica valutazione avversaria per Leghe, Asta Live e MAX live.
+   Il motore riceve una fotografia dei dati esistenti e non scrive nello stato. */
+function opponentIntelligenceForPlayer(p,intel=getAuctionIntel()){
+  const empty={version:"A4.2",anchorPrice:Math.max(1,Number(p?.maxPrice||neutralPrice(p))),teams:[],expectedRivals:0,likelyRivals:0,atLeastOneBid:0,pricePressurePct:0,pressureLabel:"BASSA",confidence:0};
+  if(!state.league||!p)return empty;
+  const opponents=opponentTeams(),engine=window.FA2OpponentIntelligence;
+  const anchorPrice=empty.anchorPrice,clubLimit=configuredClubLimit(),assignmentShare=opponentAssignmentShare();
+  const teamInputs=opponents.map(team=>{
+    const pred=intel.predictions[team.id],econ=pred?.econ||teamEconomy(team);
+    const needs=opponentRoleNeedsForTeam(team,intel);
+    return {
+      id:team.id,name:team.name,module:pred?.top?.module.name||"—",moduleConfidence:pred?.confidence||0,
+      rosterCount:econ.items?.length||0,remaining:econ.remaining,missing:econ.missing,maxNext:econ.maxNext,
+      clubEligible:!clubLimit||teamClubCount(team,p.club)<clubLimit,needs
+    };
+  });
+  if(typeof engine?.evaluatePlayer!=="function"){
+    const rows=teamInputs.map(row=>{
+      const matching=row.needs.filter(need=>need.roles.some(role=>roleTokens(p.role).includes(role))).sort((a,b)=>b.need-a.need);
+      const probability=clamp((matching[0]?.need||0)*row.moduleConfidence*(row.maxNext>=anchorPrice?1:.2));
+      return {...row,team:leagueTeamById(row.id),teamId:row.id,need:matching[0]?.need||0,needLabel:matching[0]?.label||"",probability,pressure:probability,dataConfidence:row.moduleConfidence,confidence:row.moduleConfidence,estimatedCap:Math.min(row.maxNext,anchorPrice),eligible:row.missing>0};
+    }).sort((a,b)=>b.probability-a.probability);
+    const atLeastOneBid=rows.length?1-rows.reduce((value,row)=>value*(1-row.probability),1):0;
+    return {...empty,teams:rows,expectedRivals:rows.reduce((sum,row)=>sum+row.probability,0),likelyRivals:rows.filter(row=>row.probability>=.42).length,atLeastOneBid,confidence:rows.length?rows.reduce((sum,row)=>sum+row.dataConfidence,0)/rows.length:0};
+  }
+  const result=engine.evaluatePlayer({
+    anchorPrice,minBid:configuredMinBid(),budget:configuredBudget(),rosterTotal:configuredRosterTotal(),
+    phaseIndex:phaseIndex(),assignmentShare,playerRoles:roleTokens(p.role),teams:teamInputs
+  });
+  const teamsById=new Map(opponents.map(team=>[String(team.id),team]));
+  return {...result,teams:result.teams.map(row=>({...row,team:teamsById.get(String(row.teamId)),pressure:row.probability,confidence:row.dataConfidence}))};
+}
+function competitionForPlayer(p,intel=getAuctionIntel()){return opponentIntelligenceForPlayer(p,intel).teams}
 function liveMaxForPlayer(p,intel=getAuctionIntel()){
   const base=Math.max(1,Number(p.maxPrice||neutralPrice(p)));
   const inf=clamp(playerInflation(p,intel),-35,70);
   const risk=familyRiskForPlayer(p,intel).risk;
-  const comp=competitionForPlayer(p,intel);
-  const activeComp=comp.filter(x=>x.pressure>=.22).length;
-  const factor=clamp(1+(inf/100)*.25+((risk-35)/100)*.16+Math.min(.07,activeComp*.018),.78,1.25);
+  const opponent=opponentIntelligenceForPlayer(p,intel),comp=opponent.teams;
+  const activeComp=opponent.likelyRivals;
+  const factor=clamp(1+(inf/100)*.25+((risk-35)/100)*.16+Math.min(.10,opponent.pricePressurePct/100),.78,1.25);
   const mine=teamEconomy(mineTeam());
   const live=Math.round(base*factor);
-  return {base,live:Math.min(live,mine.maxNext||live),rawLive:live,inflation:inf,risk,activeComp,competition:comp};
+  return {base,live:Math.min(live,mine.maxNext||live),rawLive:live,inflation:inf,risk,activeComp,competition:comp,opponent};
 }
 
 /* v1.43 — Target dinamici Asta Live.
@@ -2097,7 +2154,7 @@ function selectLivePlayer(id){
   const p=getPlayer(id);if(!p)return;
   liveSelectedId=p.id;
   const intel=getAuctionIntel(),live=liveMaxForPlayer(p,intel),mine=teamEconomy(mineTeam());
-  const comp=live.competition.slice(0,5);
+  const opponent=live.opponent,comp=live.competition.slice(0,5);
   const plan=fa2LivePlanEntry(p),guidance=fa2StrategyGuidanceForPlayer(p),managedPlanPlayer=fa2ManagedPlanPlayerIds().has(String(p.id));
   const dynamic=managedPlanPlayer?null:dynamicAlternativeForPlayer(p,intel);
   const staticTarget=isStaticTarget(p)&&!managedPlanPlayer;
@@ -2133,8 +2190,16 @@ function selectLivePlayer(id){
       ${planCap&&dynamicBudget?`<div><span>BUDGET SLOT</span><b>${fmt(dynamicBudget)}</b></div>`:""}
     </div>
     <div class="live-own-money"><span>Noi: ${fmt(mine.remaining)} cr · ${mine.missing} posti${budgetRuntime?` · riserva ${fmt(budgetRuntime.reserve)}`:""}</span><b>MAX possibile ${fmt(mine.maxNext)}</b></div>
-    <div class="live-competition-title">Concorrenza prevista</div>
-    ${state.league?`<div class="live-competition">${comp.map(x=>`<div class="${x.pressure>=.45?"hot":x.pressure>=.22?"warm":"cool"}"><span><b>${esc(x.team.name)}</b><small>${x.module} · conf. ${Math.round(x.confidence*100)}%</small></span><strong>${Math.round(x.pressure*100)}%<small>MAX ${fmt(x.maxNext)}</small></strong></div>`).join("")}</div>`:'<div class="live-empty">Crea una lega per stimare la concorrenza avversaria.</div>'}
+    <div class="live-competition-title"><span>OPPONENT INTELLIGENCE · A4.2</span>${state.league?`<small>stima al prezzo guida ${fmt(opponent.anchorPrice)} cr</small>`:""}</div>
+    ${state.league?`<div class="live-opponent-summary pressure-${String(opponent.pressureLabel||"bassa").toLowerCase()}">
+      <div><span>PRESSIONE SUL PREZZO</span><b>${esc(opponent.pressureLabel)} · +${opponent.pricePressurePct}%</b></div>
+      <div><span>ALMENO UN RILANCIO</span><b>${Math.round(opponent.atLeastOneBid*100)}%</b></div>
+      <small>${opponent.likelyRivals} ${opponent.likelyRivals===1?"rivale probabile":"rivali probabili"} · affidabilità dati ${Math.round(opponent.confidence*100)}%</small>
+    </div><div class="live-competition">${comp.map(x=>{
+      const blocked=!x.clubEligible?"limite club raggiunto":!x.eligible?"rosa completa o budget esaurito":"";
+      const need=blocked||x.needLabel?blocked||`manca ${x.needLabel}`:"bisogno non forte";
+      return `<div class="${x.probability>=.62?"hot":x.probability>=.38?"warm":"cool"}"><span><b>${esc(x.team?.name||x.name)}</b><small>${esc(need)} · ${esc(x.module)}</small><small>Residuo ${fmt(x.remaining)} · MAX possibile ${fmt(x.maxNext)}</small></span><strong>${Math.round(x.probability*100)}%<small>rilancio · tetto stim. ${fmt(x.estimatedCap)}</small></strong></div>`;
+    }).join("")}</div><p class="live-opponent-note">Stima basata soltanto su rose, prezzi e assegnazioni salvati. Il tetto rivale stimato non sostituisce il tuo MAX strategico.</p>`:'<div class="live-empty">Crea una lega e assegna i giocatori venduti per attivare budget rivali, ruoli mancanti e probabilità di rilancio.</div>'}
     <div class="live-actions"><button class="primary" onclick='liveBuy(${idArg(p.id)})'>ACQUISTA</button><button class="soldbtn" onclick='liveSell(${idArg(p.id)})'>VENDUTO</button></div>
   </div>`;
 }
@@ -3185,6 +3250,9 @@ function renderLeagues(){
   const leader=intel.economy[0];
   const unassigned=soldPlayers().filter(p=>!state.sold[p.id]?.teamId || (state.sold[p.id]?.leagueId && state.sold[p.id]?.leagueId!==league.id));
   const assignedOutCount=league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).filter(x=>x.p.outOfListone).length,0);
+  const opponentConfidenceRows=opponentTeams().map(team=>opponentTeamDataConfidence(team,intel));
+  const opponentConfidence=opponentConfidenceRows.length?opponentConfidenceRows.reduce((sum,value)=>sum+value,0)/opponentConfidenceRows.length:0;
+  const assignmentShare=opponentAssignmentShare();
 
   $("#leagueView").innerHTML=`
     <div class="section-title league-title-row">
@@ -3199,6 +3267,10 @@ function renderLeagues(){
       <div class="card metric"><span>Leader crediti</span><strong>${leader?fmt(leader.remaining):"—"}</strong><span>${leader?esc(leader.team.name):"—"}</span></div>
     </div>
 
+    <div class="opponent-intelligence-banner">
+      <div><span>OPPONENT INTELLIGENCE · A4.2</span><b>Budget rivali, ruoli mancanti e probabilità di rilancio</b><small>Assegnazioni collegate ${Math.round(assignmentShare*100)}% · affidabilità media ${Math.round(opponentConfidence*100)}%. Le stime migliorano mentre assegni i venduti alle squadre corrette.</small></div>
+    </div>
+
     <details class="league-edit-details">
       <summary><span>Rinomina lega e squadre</span><small>${league.size} partecipanti</small></summary>
       <div class="card league-edit-card">
@@ -3210,17 +3282,15 @@ function renderLeagues(){
       </div>
     </details>
 
-    <div class="section-title"><h2>Rose + Auction Intelligence</h2><span class="muted">tocca per aprire</span></div>
+    <div class="section-title"><h2>Rose + Opponent Intelligence</h2><span class="muted">tocca per aprire</span></div>
     ${assignedOutCount?`<div class="out-listone-roster-legend league-out-legend"><b>* Fuori listone</b><span>${assignedOutCount} ${assignedOutCount===1?"giocatore assegnato":"giocatori assegnati"} da gestire nelle riparazioni</span></div>`:""}
     <div class="league-rosters intelligence-rosters">
       ${league.teams.map(team=>{
         const econ=teamEconomy(team);
         const pred=intel.predictions[team.id];
         const isLeader=leader?.team.id===team.id;
-        const likelyNeeds=INTEL_FAMILIES.map(f=>{
-          const row=intel.demand[f.id]?.teams.find(x=>x.team.id===team.id);
-          return row&&row.pressure>=.22?{f,row}:null;
-        }).filter(Boolean).sort((a,b)=>b.row.pressure-a.row.pressure).slice(0,4);
+        const dataConfidence=team.isMine?1:opponentTeamDataConfidence(team,intel);
+        const likelyNeeds=team.isMine?[]:opponentRoleNeedsForTeam(team,intel).filter(row=>row.need>=.25).slice(0,4);
         return `<details class="league-team-card intelligence-team-card ${isLeader?"credit-leader-card":""}" ${team.isMine?"open":""}>
           <summary>
             <div><b>${isLeader?"TOP ":""}${esc(team.name)}</b>${team.isMine?'<span class="mine-badge">MIA</span>':''}${isLeader?'<span class="leader-badge">LEADER CREDITI</span>':''}</div>
@@ -3238,7 +3308,7 @@ function renderLeagues(){
               <b>${pred?.top?.module.name||"—"} · ${Math.round((pred?.top?.prob||0)*100)}%</b>
               <small>${(pred?.ranked||[]).slice(1,3).map(x=>`${x.module.name} ${Math.round(x.prob*100)}%`).join(" · ")||"Dati ancora insufficienti"}</small>
             </div>
-            <div class="team-needs-box"><span>Domanda futura stimata</span><b>${likelyNeeds.length?likelyNeeds.map(x=>`${x.f.label} ${Math.round(x.row.pressure*100)}%`).join(" · "):"nessun ruolo forte ancora"}</b></div>`}
+            <div class="team-needs-box"><span>Ruoli mancanti stimati · dati ${Math.round(dataConfidence*100)}%</span><b>${likelyNeeds.length?likelyNeeds.map(row=>`${row.label} ${Math.round(row.need*100)}%`).join(" · "):"nessun bisogno forte ancora"}</b></div>`}
             ${leagueRosterRows(econ.items)}
           </div>
         </details>`;
@@ -3450,7 +3520,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.4.1").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.4.2").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -3869,7 +3939,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · REGULATION + STRATEGY INTELLIGENCE α4.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence e Piano Strategia alimentano lo stesso motore. Bonus, Under, Switch e modificatori cambiano valore e priorità senza modificare automaticamente la rosa.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + OPPONENT INTELLIGENCE α4.2</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Bonus, Under, Switch e concorrenza cambiano valore e priorità senza modificare automaticamente la rosa.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
