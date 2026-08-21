@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generatedAt": "2026-08-21T11:02:02Z",
+  "generatedAt": "2026-08-21T12:02:41Z",
   "sourceName": "Fantacalcio.it",
   "sourceUrl": "https://www.fantacalcio.it/probabili-formazioni-serie-a",
   "teams": [
@@ -240,7 +240,7 @@
         },
         {
           "name": "Kevin Carlos",
-          "probability": 60
+          "probability": 55
         }
       ],
       "bench": [
@@ -282,7 +282,7 @@
         },
         {
           "name": "Mutandwa",
-          "probability": 60
+          "probability": 55
         },
         {
           "name": "Borrelli",
@@ -290,7 +290,7 @@
         },
         {
           "name": "Mendy P.",
-          "probability": 55
+          "probability": 60
         },
         {
           "name": "Almqvist",
@@ -471,7 +471,7 @@
           "probability": 80
         },
         {
-          "name": "Fagioli",
+          "name": "Oulai",
           "probability": 60
         },
         {
@@ -517,7 +517,7 @@
           "probability": 60
         },
         {
-          "name": "Oulai",
+          "name": "Fagioli",
           "probability": 60
         },
         {
@@ -1308,7 +1308,7 @@
         },
         {
           "name": "Bartesaghi",
-          "probability": 60
+          "probability": 55
         },
         {
           "name": "Ricci S.",
@@ -1320,7 +1320,7 @@
         },
         {
           "name": "Musah",
-          "probability": 50
+          "probability": 40
         },
         {
           "name": "Saelemaekers",
@@ -1336,11 +1336,11 @@
         },
         {
           "name": "Pulisic",
-          "probability": 50
+          "probability": 55
         },
         {
           "name": "Camarda",
-          "probability": 40
+          "probability": 35
         },
         {
           "name": "Comuzzo",
