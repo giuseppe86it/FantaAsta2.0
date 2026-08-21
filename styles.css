@@ -2840,6 +2840,127 @@ html,body{background:radial-gradient(circle at 50% -10%,#0b1b30 0,#06101d 42%,#0
   .finance-club-panel .club-tile-copy b,.finance-club-panel .club-tile-copy strong{font-size:8.7px!important}
 }
 
+/* =========================================================
+   A4.2.1 — Dashboard League Quick View
+   ========================================================= */
+.finance-league-row{
+  width:100%;
+  appearance:none;
+  -webkit-appearance:none;
+  color:var(--text);
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+}
+.finance-league-row:focus-visible{
+  outline:2px solid var(--accent);
+  outline-offset:2px;
+}
+.finance-league-row:active{transform:scale(.992)}
+.dashboard-league-quickview{padding:18px}
+.dashboard-league-quickview .safety-modal-head h2{
+  max-width:390px;
+  overflow-wrap:anywhere;
+}
+.dashboard-league-quick-kpis{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:8px;
+  margin-top:15px;
+}
+.dashboard-league-quick-kpis>div{
+  min-width:0;
+  min-height:84px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:10px 7px;
+  border:1px solid #2b4a68;
+  border-radius:14px;
+  background:linear-gradient(180deg,#11253d,#0c1c30);
+  text-align:center;
+}
+.dashboard-league-quick-kpis>div.featured{
+  border-color:#31c990;
+  background:linear-gradient(180deg,#123a30,#0e2c27);
+}
+.dashboard-league-quick-kpis span{
+  color:#a9b8ca;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.04em;
+  text-transform:uppercase;
+}
+.dashboard-league-quick-kpis b{
+  margin-top:5px;
+  color:#f7faff;
+  font-size:25px;
+  line-height:1;
+  font-variant-numeric:tabular-nums;
+}
+.dashboard-league-quick-kpis>div.featured b{color:var(--accent)}
+.dashboard-league-quick-kpis b small{font-size:.55em;color:#a9b8ca}
+.dashboard-league-budget-line{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto;
+  align-items:center;
+  gap:2px 10px;
+  margin-top:9px;
+  padding:10px 12px;
+  border:1px solid #294762;
+  border-radius:12px;
+  background:#0b1b2d;
+}
+.dashboard-league-budget-line span{font-size:11px;color:#a7b6c8}
+.dashboard-league-budget-line b{font-size:15px;color:#f7faff;font-variant-numeric:tabular-nums}
+.dashboard-league-budget-line small{grid-column:1/-1;color:#8499b1;font-size:9px}
+.dashboard-league-purchases{
+  margin-top:14px;
+  border:1px solid #294762;
+  border-radius:14px;
+  background:#0a192a;
+  overflow:hidden;
+}
+.dashboard-league-purchases-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:11px 12px;
+  border-bottom:1px solid #294762;
+}
+.dashboard-league-purchases-head h3{margin:0;font-size:13px}
+.dashboard-league-purchases-head span{color:#8fa3bb;font-size:10px}
+.dashboard-league-purchases-list{padding:5px 12px 9px}
+.dashboard-league-purchases-list .league-role-block{margin-top:9px}
+.dashboard-league-purchases-list .league-role-block>b{font-size:10px}
+.dashboard-league-purchases-list .league-player-row{padding:8px 0}
+.dashboard-league-purchases-list .league-player-row>span{font-size:13px}
+.dashboard-league-purchases-list .league-player-row small{font-size:9px}
+.dashboard-league-purchases-list .league-player-row strong{font-size:12px;color:var(--accent)}
+.dashboard-league-purchases-list .league-empty{padding:18px 2px;text-align:center;font-size:12px}
+.dashboard-league-detail-link{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-top:12px;
+  padding:13px 14px;
+  text-align:left;
+}
+.dashboard-league-detail-link span{font-size:12px;font-weight:850}
+.dashboard-league-detail-link strong{font-size:12px;white-space:nowrap}
+@media(max-width:360px){
+  .dashboard-league-quickview{padding:15px}
+  .dashboard-league-quick-kpis>div{min-height:76px;padding:8px 5px}
+  .dashboard-league-quick-kpis span{font-size:9px}
+  .dashboard-league-quick-kpis b{font-size:22px}
+  .dashboard-league-detail-link span{font-size:11px}
+}
+
 
 /* =========================================================
    v1.41 - Fuori listone / asta di riparazione

@@ -1672,6 +1672,50 @@ function cancelDashboardAssignment(){
 window.saveDashboardAssignmentEdit=saveDashboardAssignmentEdit;
 window.cancelDashboardAssignment=cancelDashboardAssignment;
 
+function openLeagueTeamIntelligence(teamId){
+  const team=leagueTeamById(String(teamId));
+  if(!team)return;
+  closeSafetyDialog();
+  switchView("leagueView");
+  requestAnimationFrame(()=>{
+    const card=$$(".intelligence-team-card").find(el=>String(el.dataset.teamId)===String(team.id));
+    if(!card)return;
+    card.open=true;
+    card.scrollIntoView({behavior:"smooth",block:"start"});
+  });
+}
+window.openLeagueTeamIntelligence=openLeagueTeamIntelligence;
+
+function openDashboardLeagueQuickView(teamId){
+  const team=leagueTeamById(String(teamId));
+  if(!team)return;
+  const econ=teamEconomy(team),rosterTotal=configuredRosterTotal();
+  const acquired=econ.items.length;
+  $("#safetyDialogContent").innerHTML=`<div class="dialog-body dashboard-league-quickview">
+    <div class="safety-modal-head">
+      <div><div class="eyebrow">Panoramica Lega · ${team.isMine?"Mia squadra":"Rivale"}</div><h2>${esc(team.name)}</h2></div>
+      <button type="button" class="ghost" aria-label="Chiudi" onclick="closeSafetyDialog()">✕</button>
+    </div>
+    <div class="dashboard-league-quick-kpis">
+      <div class="featured"><span>Residuo</span><b>${fmt(econ.remaining)}<small> cr</small></b></div>
+      <div><span>Acquistati</span><b>${acquired}<small>/${rosterTotal}</small></b></div>
+      <div><span>Posti rimasti</span><b>${econ.missing}</b></div>
+      <div><span>MAX prossimo</span><b>${fmt(econ.maxNext)}<small> cr</small></b></div>
+    </div>
+    <div class="dashboard-league-budget-line"><span>Speso finora</span><b>${fmt(econ.spent)} cr</b><small>Budget iniziale ${fmt(configuredBudget())} cr</small></div>
+    <section class="dashboard-league-purchases">
+      <div class="dashboard-league-purchases-head"><h3>Giocatori acquistati</h3><span>${acquired} ${acquired===1?"acquisto":"acquisti"}</span></div>
+      <div class="dashboard-league-purchases-list">${leagueRosterRows(econ.items)}</div>
+    </section>
+    <button type="button" class="primary dashboard-league-detail-link" onclick='openLeagueTeamIntelligence(${idArg(team.id)})'>
+      <span>Rose + Opponent Intelligence</span><strong>Apri ›</strong>
+    </button>
+  </div>`;
+  const dialog=$("#safetyDialog");
+  if(dialog&&!dialog.open)dialog.showModal();
+}
+window.openDashboardLeagueQuickView=openDashboardLeagueQuickView;
+
 function renderDashboard(){
   invalidateAuctionIntel();
   const intel=getAuctionIntel();
@@ -1767,14 +1811,14 @@ function renderDashboard(){
 
       <section class="finance-market-grid">
         <div class="finance-panel finance-league-overview">
-          <div class="finance-panel-title"><b>PANORAMICA LEGA</b><span>${state.league?state.league.size+" squadre":"lega non creata"}</span></div>
+          <div class="finance-panel-title"><b>PANORAMICA LEGA</b><span>${state.league?state.league.size+" squadre · tocca per aprire":"lega non creata"}</span></div>
           ${leagueOverview.length?`<div class="finance-league-list">${leagueOverview.map((e,i)=>`
-            <div class="finance-league-row ${e.team.isMine?"mine":""} ${i===0?"leader":""}">
+            <button type="button" class="finance-league-row ${e.team.isMine?"mine":""} ${i===0?"leader":""}" aria-label="Apri riepilogo di ${escAttr(e.team.name)}" onclick='openDashboardLeagueQuickView(${idArg(e.team.id)})'>
               <b class="finance-league-rank">${i+1}</b>
               <span class="finance-league-team"><strong>${esc(e.team.name)}</strong>${e.team.isMine?'<small class="finance-mine-label">MIA SQUADRA</small>':''}</span>
               <span class="finance-league-roster"><strong>${e.items.length}<em>/${rosterTotal}</em></strong><small>giocatori</small></span>
               <span class="finance-league-credit"><strong>${fmt(e.remaining)}</strong><small>crediti</small></span>
-            </div>`).join("")}</div>`:`<div class="finance-empty">Crea una lega per il confronto avversari.</div>`}
+            </button>`).join("")}</div>`:`<div class="finance-empty">Crea una lega per il confronto avversari.</div>`}
         </div>
         <div class="finance-panel finance-club-panel">
           <div class="finance-panel-title"><b>GIOCATORI PER CLUB</b><span>${clubLimit?`quota massima ${clubLimit}`:"nessun limite"}</span></div>
@@ -3291,7 +3335,7 @@ function renderLeagues(){
         const isLeader=leader?.team.id===team.id;
         const dataConfidence=team.isMine?1:opponentTeamDataConfidence(team,intel);
         const likelyNeeds=team.isMine?[]:opponentRoleNeedsForTeam(team,intel).filter(row=>row.need>=.25).slice(0,4);
-        return `<details class="league-team-card intelligence-team-card ${isLeader?"credit-leader-card":""}" ${team.isMine?"open":""}>
+        return `<details class="league-team-card intelligence-team-card ${isLeader?"credit-leader-card":""}" data-team-id="${escAttr(team.id)}" ${team.isMine?"open":""}>
           <summary>
             <div><b>${isLeader?"TOP ":""}${esc(team.name)}</b>${team.isMine?'<span class="mine-badge">MIA</span>':''}${isLeader?'<span class="leader-badge">LEADER CREDITI</span>':''}</div>
             <span>${econ.items.length}/${rosterTotal} · ${fmt(econ.remaining)} cr · MAX ${fmt(econ.maxNext)}</span>
@@ -3520,7 +3564,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.4.2").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.4.2.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -3939,7 +3983,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + OPPONENT INTELLIGENCE α4.2</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Bonus, Under, Switch e concorrenza cambiano valore e priorità senza modificare automaticamente la rosa.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + OPPONENT INTELLIGENCE α4.2.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Bonus, Under, Switch e concorrenza cambiano valore e priorità senza modificare automaticamente la rosa.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
