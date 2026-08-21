@@ -3350,3 +3350,20 @@ body{
 @media(max-width:390px){
   .fa2-live-copilot{padding:11px}.fa2-copilot-decision{grid-template-columns:1fr;padding:9px}.fa2-copilot-open{width:100%;min-height:40px}.fa2-copilot-player>div>b{font-size:16px}.fa2-copilot-runtime{grid-template-columns:1fr}.fa2-copilot-runtime b,.fa2-copilot-runtime small{white-space:normal}.fa2-copilot-why p{font-size:9px}
 }
+
+/* =========================================================
+   FantaAsta2.0 Alpha 5.1 — Next Call Reminder
+   ========================================================= */
+.fa2-next-call-reminder{margin:0 0 10px;padding:10px;border:1px solid #31956e;border-radius:14px;background:linear-gradient(145deg,#10382d,#0d2134);box-shadow:inset 0 0 0 1px rgba(68,222,160,.07)}
+.fa2-next-call-reminder.over{border-color:#d99b2c;background:linear-gradient(145deg,#392913,#172331)}
+.fa2-next-call-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.fa2-next-call-head span{display:block;color:#72e8b5;font-size:8px;font-weight:950;letter-spacing:.08em}
+.fa2-next-call-head b{display:block;margin-top:2px;color:#70e8b4;font-size:13px;line-height:1.15}
+.fa2-next-call-reminder.over .fa2-next-call-head span,.fa2-next-call-reminder.over .fa2-next-call-head b{color:#ffc85d}
+.fa2-next-call-head button{flex:0 0 31px;width:31px;height:31px;padding:0;border:1px solid #35516c;border-radius:9px;background:#12263c;color:#d8e1eb;font-size:18px;line-height:1}
+.fa2-next-call-purchase{margin-top:8px;padding:8px 9px;border:1px solid rgba(75,168,133,.35);border-radius:10px;background:rgba(7,22,34,.52)}
+.fa2-next-call-purchase span{display:block;color:#fff;font-size:14px;font-weight:900}.fa2-next-call-purchase small{display:block;margin-top:2px;color:#9fb0c3;font-size:8.5px;line-height:1.3}
+.fa2-next-call-target{margin-top:6px;padding:8px 9px;border-radius:10px;background:#11243a}
+.fa2-next-call-target span{display:block;color:#8fa3ba;font-size:7.5px;font-weight:900;letter-spacing:.06em}.fa2-next-call-target b{display:block;margin-top:2px;color:#f4f7fb;font-size:12px;line-height:1.2}.fa2-next-call-target small{display:block;margin-top:2px;color:#9eb0c3;font-size:8px;line-height:1.3}
+.fa2-next-call-budget{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;padding:7px 9px;border-radius:9px;background:#0b1a2c;color:#a9b8c9;font-size:8px}.fa2-next-call-budget b{color:#71e4b2;font-size:10px}.fa2-next-call-reminder.over .fa2-next-call-budget b{color:#ffc85d}
+@media(max-width:390px){.fa2-next-call-budget{align-items:flex-start;flex-direction:column;gap:2px}.fa2-next-call-target b{font-size:11px}}

@@ -2351,8 +2351,61 @@ function fa2AuctionCopilotSnapshot(context=fa2LiveContext("")){
 function fa2CopilotMetricHTML(label,value,detail="",className=""){
   return `<div class="fa2-copilot-metric ${escAttr(className)}"><span>${esc(label)}</span><b>${esc(value)}</b>${detail?`<small>${esc(detail)}</small>`:""}</div>`;
 }
-function fa2AuctionCopilotHTML(context){
-  const x=fa2AuctionCopilotSnapshot(context),budget=x.budget||{},module=x.module||{};
+/* Alpha 5.1 — Next Call Reminder.
+   È un riepilogo volatile dell'ultimo acquisto: non crea chiavi persistenti,
+   non decide nuovi TARGET e legge il nuovo stato già prodotto dal Copilot. */
+let fa2LastPurchaseReminder=null;
+function fa2RememberPurchaseForNextCall(p,price,guide,live,event){
+  if(!p)return;
+  const strategicMax=Math.max(0,Number(guide?.maxRecommended)||0),liveMax=Math.max(0,Number(live?.live)||0),cap=strategicMax||liveMax;
+  if(!cap||Number(price)<=cap){fa2LastPurchaseReminder=null;return}
+  fa2LastPurchaseReminder={
+    playerId:String(p.id),name:p.name||"Giocatore",club:p.club||"",role:p.role||"",price:Number(price)||0,
+    strategicMax,liveMax,
+    slot:guide?.slot||"",planLabel:guide?.label||"",budget:event?.budget||{},at:Date.now()
+  };
+}
+function fa2DismissNextCallReminder(){
+  fa2LastPurchaseReminder=null;
+  $(".fa2-next-call-reminder")?.remove();
+}
+function fa2NextCallSummary(snapshot){
+  if(!snapshot)return {label:"PROSSIMA INDICAZIONE",value:"Riapri Asta Live",detail:"Il mercato verrà ricalcolato."};
+  if(snapshot.mode==="target"||snapshot.mode==="promoted")return {
+    label:snapshot.status,value:snapshot.player?.name||"—",
+    detail:`Slot ${snapshot.slotLabel||"—"} · MAX strategico ${fmt(snapshot.strategicMax||0)} · MAX live ${fmt(snapshot.liveMax||0)}`
+  };
+  if(snapshot.mode==="market")return {
+    label:"PROFILO DI MERCATO",value:snapshot.player?.name||"—",
+    detail:`Fuori Piano Strategia · MAX live ${fmt(snapshot.liveMax||0)}`
+  };
+  if(snapshot.mode==="covered")return {
+    label:"SLOT COPERTO",value:`Nessun sostituto per ${snapshot.slotLabel||"lo slot"}`,
+    detail:`${snapshot.player?.name||"Il giocatore acquistato"} resta la copertura · alternative ferme`
+  };
+  if(snapshot.mode==="exhausted")return {
+    label:"SLOT DA RIANALIZZARE",value:snapshot.slotLabel||"Strategia",
+    detail:"Nessun candidato salvato disponibile: il Copilot non promuove profili esterni."
+  };
+  return {label:"FASE COMPLETATA",value:`Nessuna priorità in ${state.auctionPhase}`,detail:"Passa alla fase successiva quando previsto dall'asta."};
+}
+function fa2NextCallReminderHTML(snapshot){
+  const reminder=fa2LastPurchaseReminder;if(!reminder)return "";
+  const cap=reminder.strategicMax||reminder.liveMax,difference=cap?reminder.price-cap:0,over=difference>0;
+  const reference=reminder.strategicMax?"MAX strategico":reminder.liveMax?"MAX live":"prezzo guida";
+  const status=reminder.strategicMax?`EXTRA BUDGET · +${fmt(difference)} cr`:`OLTRE MAX LIVE · +${fmt(difference)} cr`;
+  const comparison=cap?`${reference} ${fmt(cap)}${reminder.strategicMax&&reminder.liveMax?` · MAX live ${fmt(reminder.liveMax)}`:""}`:"Nessun tetto disponibile";
+  const next=fa2NextCallSummary(snapshot),budget=snapshot?.budget||reminder.budget||{};
+  return `<section class="fa2-next-call-reminder ${over?"over":"ok"}" aria-live="polite">
+    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.1</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
+    <div class="fa2-next-call-purchase"><div><span>${esc(reminder.name)} · ${fmt(reminder.price)} cr</span><small>${esc(comparison)}${reminder.slot?` · slot ${esc(reminder.slot)}`:""}</small></div></div>
+    <div class="fa2-next-call-target"><span>${esc(next.label)}</span><b>${esc(next.value)}</b><small>${esc(next.detail)}</small></div>
+    <div class="fa2-next-call-budget"><b>${fmt(budget.remaining||0)} cr residui</b><span>${budget.missing??0} posti · MAX prossimo ${fmt(budget.maxNext||0)}</span></div>
+  </section>`;
+}
+window.fa2DismissNextCallReminder=fa2DismissNextCallReminder;
+function fa2AuctionCopilotHTML(context,snapshot=null){
+  const x=snapshot||fa2AuctionCopilotSnapshot(context),budget=x.budget||{},module=x.module||{};
   let metrics="",action="";
   if(x.mode==="target"||x.mode==="promoted"){
     metrics=[
@@ -2394,7 +2447,7 @@ function fa2AuctionCopilotHTML(context){
   }
   const identity=x.player?`${kitHTML(x.player.club,'sm',x.player.club)}<div><b>${esc(x.player.name)}</b><small>${esc(x.detail||`Slot ${x.slotLabel||"—"}`)}</small></div>`:`<div><b>${esc(x.slotLabel||x.status)}</b><small>Fase ${esc(state.auctionPhase)}</small></div>`;
   return `<section class="fa2-live-copilot ${escAttr(x.mode)}">
-    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
+    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.1</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
     <div class="fa2-copilot-decision"><div class="fa2-copilot-player"><strong>${esc(x.badge)}</strong>${identity}</div>${action}</div>
     <div class="fa2-copilot-metrics">${metrics}</div>
     <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
@@ -2408,10 +2461,11 @@ function fa2OpenCopilotPlayer(id){
 }
 window.fa2OpenCopilotPlayer=fa2OpenCopilotPlayer;
 function renderAuctionLive(){
-  const phase=AUCTION_PHASES[phaseIndex()],liveContext=fa2LiveContext("");
+  const phase=AUCTION_PHASES[phaseIndex()],liveContext=fa2LiveContext(""),copilotSnapshot=fa2AuctionCopilotSnapshot(liveContext);
   $("#liveDialogContent").innerHTML=`<div class="dialog-body live-dialog-body">
     <div class="live-dialog-head"><div><span class="eyebrow">${phase.icon} Fase ${phase.id}</span><h2>Asta Live</h2></div><button id="closeLiveBtn" class="ghost">✕</button></div>
-    ${fa2AuctionCopilotHTML(liveContext)}
+    ${fa2NextCallReminderHTML(copilotSnapshot)}
+    ${fa2AuctionCopilotHTML(liveContext,copilotSnapshot)}
     <input id="liveSearchInput" class="search live-search" placeholder="Cerca giocatore…" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="liveSelected"></div>
     <div class="live-results-label"><span>${phase.label}</span><small>TARGET → alternative → migliori profili</small></div>
@@ -2423,7 +2477,7 @@ function renderAuctionLive(){
 }
 function openAuctionLive(){
   liveSelectedId=null;renderAuctionLive();$("#liveDialog").showModal();
-  setTimeout(()=>$("#liveSearchInput")?.focus(),30);
+  if(!fa2LastPurchaseReminder)setTimeout(()=>$("#liveSearchInput")?.focus(),30);
 }
 window.openAuctionLive=openAuctionLive;
 window.liveBuy=id=>{
@@ -3211,6 +3265,7 @@ $("#purchaseForm").addEventListener("submit",e=>{
   }
   const econ=teamEconomy(mineTeam(),purchaseMode==="edit"?purchaseId:null);
   if(price>econ.maxNext){alert(`Puoi spendere al massimo ${econ.maxNext} crediti sul prossimo giocatore, conservando ${configuredReservePerSlot()} crediti per ogni slot successivo.`);return;}
+  const purchaseGuide=p?fa2StrategyGuidanceForPlayer(p):null,purchaseLive=p?liveMaxForPlayer(p):null;
   const previous=state.purchases[purchaseId];
   const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),wasEdit=purchaseMode==="edit";
   state.purchases[purchaseId]={
@@ -3218,7 +3273,8 @@ $("#purchaseForm").addEventListener("submit",e=>{
     at: wasEdit && previous?.at ? previous.at : Date.now()
   };
   save();
-  fa2AfterAuctionStateChange(wasEdit?"PLAYER_PURCHASE_EDITED":"PLAYER_PURCHASED",purchaseId,strategyBefore);
+  const strategyEvent=fa2AfterAuctionStateChange(wasEdit?"PLAYER_PURCHASE_EDITED":"PLAYER_PURCHASED",purchaseId,strategyBefore);
+  if(!wasEdit)fa2RememberPurchaseForNextCall(p,price,purchaseGuide,purchaseLive,strategyEvent);
   if(!wasEdit)registerBackupRelevantAssignment();
   recordOperation(wasEdit?"MODIFICA_ACQUISTO":"ACQUISTO",wasEdit?`${p?.name||"Giocatore"}: ${previous?.price||"—"} → ${price} cr`:`${p?.name||"Giocatore"} acquistato a ${price} cr`,before);
   $("#purchaseDialog").close();
@@ -3717,7 +3773,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -3934,12 +3990,14 @@ function fa2CaptureStrategySlotStates(){
 }
 let fa2LastStrategyAuctionEvent=null;
 function fa2AfterAuctionStateChange(type,playerId,beforeStates=null){
+  const eventType=String(type||"AUCTION_CHANGED"),eventPlayerId=String(playerId||"");
+  if(["STATE_RESTORED","AUCTION_RESET","BACKUP_IMPORTED"].includes(eventType)||(["PLAYER_PURCHASE_REMOVED","PLAYER_PURCHASE_UNDONE"].includes(eventType)&&fa2LastPurchaseReminder?.playerId===eventPlayerId))fa2LastPurchaseReminder=null;
   invalidateAuctionIntel();
   fa2InvalidateModuleAdvisor();
   const afterStates=fa2CaptureStrategySlotStates(),before=beforeStates||{};
   const transitions=Object.keys({...before,...afterStates}).map(key=>({key,from:before[key]?.state||null,to:afterStates[key]?.state||null,currentId:afterStates[key]?.currentId||"",coveredById:afterStates[key]?.coveredById||""})).filter(x=>x.from!==x.to||before[x.key]?.currentId!==afterStates[x.key]?.currentId||before[x.key]?.coveredById!==afterStates[x.key]?.coveredById);
   const b=fa2LastBudgetRuntime||{},advisor=fa2GetModuleAdvisor();
-  fa2LastStrategyAuctionEvent={type:String(type||"AUCTION_CHANGED"),playerId:String(playerId||""),at:Date.now(),transitions,budget:{remaining:Number(b.remaining)||0,missing:Number(b.missing)||0,reserve:Number(b.reserve)||0,free:Number(b.free)||0,maxNext:Number(b.maxNext)||0,allocated:Number(b.allocated)||0,inflation:Number(b.overallInflation)||0,status:b.status||""},moduleAdvisor:advisor?{status:advisor.status,currentPrimaryId:advisor.currentPrimaryId,recommendedPrimaryId:advisor.recommendedPrimaryId,recommendedSecondaryId:advisor.recommendedSecondaryId,delta:advisor.delta,threshold:advisor.enterThreshold,confidence:advisor.confidence}:null};
+  fa2LastStrategyAuctionEvent={type:eventType,playerId:eventPlayerId,at:Date.now(),transitions,budget:{remaining:Number(b.remaining)||0,missing:Number(b.missing)||0,reserve:Number(b.reserve)||0,free:Number(b.free)||0,maxNext:Number(b.maxNext)||0,allocated:Number(b.allocated)||0,inflation:Number(b.overallInflation)||0,status:b.status||""},moduleAdvisor:advisor?{status:advisor.status,currentPrimaryId:advisor.currentPrimaryId,recommendedPrimaryId:advisor.recommendedPrimaryId,recommendedSecondaryId:advisor.recommendedSecondaryId,delta:advisor.delta,threshold:advisor.enterThreshold,confidence:advisor.confidence}:null};
   try{window.dispatchEvent(new CustomEvent("fa2:strategy-slots-changed",{detail:fa2LastStrategyAuctionEvent}))}catch{}
   return fa2LastStrategyAuctionEvent;
 }
@@ -4136,7 +4194,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
