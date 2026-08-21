@@ -3350,25 +3350,3 @@ body{
 @media(max-width:390px){
   .fa2-live-copilot{padding:11px}.fa2-copilot-decision{grid-template-columns:1fr;padding:9px}.fa2-copilot-open{width:100%;min-height:40px}.fa2-copilot-player>div>b{font-size:16px}.fa2-copilot-runtime{grid-template-columns:1fr}.fa2-copilot-runtime b,.fa2-copilot-runtime small{white-space:normal}.fa2-copilot-why p{font-size:9px}
 }
-
-/* =========================================================
-   FantaAsta2.0 Alpha 5.1 — Bid Decision Guard
-   ========================================================= */
-.fa2-copilot-bid{margin-top:8px;padding:9px;border:1px solid #2b4966;border-radius:12px;background:#0a1b2d}
-.fa2-copilot-bid-input{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.fa2-copilot-bid-input label{min-width:0;margin:0}
-.fa2-copilot-bid-input label span{display:block;color:#c7d3e1;font-size:8px;font-weight:900;letter-spacing:.06em}
-.fa2-copilot-bid-input label small{display:block;margin-top:2px;color:#8297ae;font-size:7.5px}
-.fa2-copilot-bid-input input{width:104px;min-height:43px;margin:0;padding:8px 10px!important;border:1px solid #365b7d;border-radius:10px;background:#10243a;color:#fff;font-size:20px!important;font-weight:850;text-align:right;font-variant-numeric:tabular-nums}
-.fa2-copilot-bid-input input:focus{border-color:#43dc9d;box-shadow:0 0 0 2px rgba(67,220,157,.13);outline:0}
-.fa2-copilot-bid-decision{margin-top:7px;padding:8px 9px;border:1px solid #2b4966;border-radius:10px;background:#11243a}
-.fa2-copilot-bid-decision span{display:block;color:#9fb1c5;font-size:9px;font-weight:950;letter-spacing:.055em}
-.fa2-copilot-bid-decision b{display:block;margin-top:3px;color:#eef3f8;font-size:9.5px;line-height:1.35}
-.fa2-copilot-bid-decision small{display:block;margin-top:4px;color:#98aabd;font-size:8px}
-.fa2-copilot-bid-decision.go{border-color:#2f8c68;background:#12382d}.fa2-copilot-bid-decision.go span{color:#70e8b4}
-.fa2-copilot-bid-decision.warn{border-color:#8e6a28;background:#302716}.fa2-copilot-bid-decision.warn span{color:#ffc85d}
-.fa2-copilot-bid-decision.stop,.fa2-copilot-bid-decision.hard,.fa2-copilot-bid-decision.invalid{border-color:#9b3c4c;background:#321b25}
-.fa2-copilot-bid-decision.stop span,.fa2-copilot-bid-decision.hard span,.fa2-copilot-bid-decision.invalid span{color:#ff95a5}
-@media(max-width:390px){
-  .fa2-copilot-bid-input input{width:92px}.fa2-copilot-bid-decision b{font-size:9px}
-}
