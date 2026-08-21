@@ -2397,7 +2397,7 @@ function fa2NextCallReminderHTML(snapshot){
   const comparison=cap?`${reference} ${fmt(cap)}${reminder.strategicMax&&reminder.liveMax?` · MAX live ${fmt(reminder.liveMax)}`:""}`:"Nessun tetto disponibile";
   const next=fa2NextCallSummary(snapshot),budget=snapshot?.budget||reminder.budget||{};
   return `<section class="fa2-next-call-reminder ${over?"over":"ok"}" aria-live="polite">
-    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.2</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
+    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.2.1</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
     <div class="fa2-next-call-purchase"><div><span>${esc(reminder.name)} · ${fmt(reminder.price)} cr</span><small>${esc(comparison)}${reminder.slot?` · slot ${esc(reminder.slot)}`:""}</small></div></div>
     <div class="fa2-next-call-target"><span>${esc(next.label)}</span><b>${esc(next.value)}</b><small>${esc(next.detail)}</small></div>
     <div class="fa2-next-call-budget"><b>${fmt(budget.remaining||0)} cr residui</b><span>${budget.missing??0} posti · MAX prossimo ${fmt(budget.maxNext||0)}</span></div>
@@ -2447,7 +2447,7 @@ function fa2AuctionCopilotHTML(context,snapshot=null){
   }
   const identity=x.player?`${kitHTML(x.player.club,'sm',x.player.club)}<div><b>${esc(x.player.name)}</b><small>${esc(x.detail||`Slot ${x.slotLabel||"—"}`)}</small></div>`:`<div><b>${esc(x.slotLabel||x.status)}</b><small>Fase ${esc(state.auctionPhase)}</small></div>`;
   return `<section class="fa2-live-copilot ${escAttr(x.mode)}">
-    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.2</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
+    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.2.1</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
     <div class="fa2-copilot-decision"><div class="fa2-copilot-player"><strong>${esc(x.badge)}</strong>${identity}</div>${action}</div>
     <div class="fa2-copilot-metrics">${metrics}</div>
     <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
@@ -3444,11 +3444,12 @@ function createLeague(){
 }
 window.createLeague=createLeague;
 
-/* Alpha 5.2 — import rose Fantacalcio CSV.
+/* Alpha 5.2 / 5.2.1 — import/export rose Fantacalcio CSV.
    Il file esportato da Leghe Fantacalcio contiene squadra, ID profilo
    ufficiale e prezzo. L'import usa l'ID del profilo presente nel Listone
    validato: nessun fuzzy matching e nessuna seconda fonte di verità. */
 let fa2PendingRosterCsvImport=null;
+let fa2PendingRosterCsvExport=null;
 
 function fa2CsvRows(text){
   const source=String(text||"").replace(/^\uFEFF/,"");
@@ -3574,6 +3575,7 @@ function fa2OpenRosterImportDialog(html){
 }
 function closeRosterImportDialog(){
   fa2PendingRosterCsvImport=null;
+  fa2PendingRosterCsvExport=null;
   const input=$("#leagueRosterCsvInput");if(input)input.value="";
   const dialog=$("#rosterImportDialog");if(dialog?.open)dialog.close();
 }
@@ -3622,7 +3624,7 @@ function fa2RosterImportPreviewHTML(pending){
   const existingMatch=resolved.teams.find(team=>normalizePlayerName(team.name)===existingMine)?.key??"";
   const complete=resolved.teams.every(team=>team.rows.length===rosterTotal);
   return `<div class="dialog-body roster-import-dialog-body">
-    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2</div><h2>Anteprima rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
+    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Anteprima rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
     <div class="roster-import-file"><span>${esc(fileName)}</span><b>${resolved.teams.length} squadre · ${resolved.totalPlayers} giocatori</b><small>${resolved.matched}/${resolved.totalPlayers} ID ufficiali riconosciuti</small></div>
     <form id="rosterImportForm">
       <div class="roster-import-fields"><label>Nome lega<input id="rosterImportLeagueName" maxlength="40" value="${escAttr(fa2RosterImportLeagueName(fileName))}" required></label><label>La mia squadra<select id="rosterImportMine" required><option value="">Seleziona…</option>${resolved.teams.map(team=>`<option value="${escAttr(team.key)}" ${team.key===existingMatch?"selected":""}>${esc(team.name)}</option>`).join("")}</select></label></div>
@@ -3637,7 +3639,7 @@ function fa2RosterImportPreviewHTML(pending){
 }
 
 async function fa2StartRosterCsvImport(file){
-  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2</div><h2>Controllo file</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Leggo rose, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
+  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Controllo file</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Leggo rose, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
   try{
     const [text,snapshot]=await Promise.all([fa2ReadTextFile(file),fa2RosterImportSnapshot()]);
     const parsed=fa2ParseFantacalcioRosterCsv(text),resolved=fa2ResolveRosterCsv(parsed,snapshot);
@@ -3698,7 +3700,7 @@ function fa2ApplyRosterCsvImport(){
     updateBackupAlert();refresh();
     const mine=resolved.teams.find(team=>team.key===ownKey),mineRemaining=configuredBudget()-(mine?.spent||0);
     fa2PendingRosterCsvImport=null;
-    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body roster-import-success"><div class="safety-modal-head"><div><div class="eyebrow">IMPORT COMPLETATO · A5.2</div><h2>Rose sincronizzate</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-finished"><span>OK</span><h2>${teams.length} squadre · ${total} giocatori</h2><p>${esc(mine?.name||"La mia squadra")} · ${fmt(mineRemaining)} crediti residui</p></div><div class="listone-sync-success-box"><b>Motori ricalcolati</b><span>Dashboard, Leghe, Strategia, budget, inflazione, Opponent Intelligence e Copilot leggono ora la stessa fotografia.</span></div><div class="dialog-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog();switchView('leagueView')">Apri Leghe</button><button class="primary" type="button" onclick="closeRosterImportDialog();switchView('dashboardView')">Dashboard</button></div></div>`);
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body roster-import-success"><div class="safety-modal-head"><div><div class="eyebrow">IMPORT COMPLETATO · A5.2.1</div><h2>Rose sincronizzate</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-finished"><span>OK</span><h2>${teams.length} squadre · ${total} giocatori</h2><p>${esc(mine?.name||"La mia squadra")} · ${fmt(mineRemaining)} crediti residui</p></div><div class="listone-sync-success-box"><b>Motori ricalcolati</b><span>Dashboard, Leghe, Strategia, budget, inflazione, Opponent Intelligence e Copilot leggono ora la stessa fotografia.</span></div><div class="dialog-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog();switchView('leagueView')">Apri Leghe</button><button class="primary" type="button" onclick="closeRosterImportDialog();switchView('dashboardView')">Dashboard</button></div></div>`);
   }catch(error){
     appliedListoneSync=previousListone;
     if(previousListone)localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(previousListone));else localStorage.removeItem(LISTONE_SYNC_STORAGE);
@@ -3751,6 +3753,180 @@ function rosterForLeagueTeam(team){
     })
     .map(p=>({p,price:Number(state.sold[p.id]?.price||0)}));
 }
+
+/* Alpha 5.2.1 — export rose compatibile con Leghe Fantacalcio.
+   Struttura verificata sul CSV ufficiale: separatore $,$,$ seguito da
+   nome squadra, ID profilo ufficiale e prezzo. L'export è in sola lettura. */
+function fa2CsvCell(value){
+  const text=String(value??"");
+  return /[",\r\n]/.test(text)?`"${text.replace(/"/g,'""')}"`:text;
+}
+
+function fa2RosterOfficialIndex(snapshot){
+  const basePlayers=basePlayerMap(),byRuntimeId=new Map(),byKey=new Map();
+  const ambiguousRuntimeIds=new Set(),ambiguousKeys=new Set();
+  const addExact=(map,ambiguous,key,entry)=>{
+    if(!key||ambiguous.has(key))return;
+    const previous=map.get(key);
+    if(previous&&previous.officialId!==entry.officialId){map.delete(key);ambiguous.add(key);return}
+    if(!previous)map.set(key,entry);
+  };
+  (snapshot?.players||[]).forEach(player=>{
+    const officialId=fa2OfficialRosterId(player),key=player.key||normalizePlayerName(player.name);
+    if(!officialId||!key)return;
+    const runtimeId=String(basePlayers.get(key)?.id??player.id??`fc_${key}`);
+    const entry={officialId,key,runtimeId,player};
+    addExact(byRuntimeId,ambiguousRuntimeIds,runtimeId,entry);
+    addExact(byKey,ambiguousKeys,key,entry);
+  });
+  return {byRuntimeId,byKey,ambiguousRuntimeIds,ambiguousKeys};
+}
+
+function fa2RosterCsvFilename(leagueName,now=Date.now()){
+  const slug=String(leagueName||"lega-fantacalcio")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+    .replace(/[^a-zA-Z0-9]+/g,"-").replace(/^-+|-+$/g,"").toLowerCase();
+  return `${slug||"lega-fantacalcio"}_rosters_${now}.csv`;
+}
+
+function fa2BuildRosterCsvExport(snapshot){
+  const league=state.league;
+  if(!league||!Array.isArray(league.teams))throw new Error("Crea o importa prima una lega con le sue squadre.");
+  if(league.teams.length<4||league.teams.length>20)throw new Error(`La lega contiene ${league.teams.length} squadre: il formato accetta da 4 a 20 partecipanti.`);
+  const rosterTotal=configuredRosterTotal(),budget=configuredBudget(),minBid=configuredMinBid();
+  const official=fa2RosterOfficialIndex(snapshot),blockers=[],missingIds=[],invalidPrices=[],duplicateIds=[];
+  const seenOfficialIds=new Map(),seenNames=new Map();
+  const opponentTeamIds=new Set(league.teams.filter(team=>!team.isMine).map(team=>String(team.id)));
+  const unassigned=soldPlayers().filter(player=>{
+    const sale=state.sold[player.id],teamId=String(sale?.teamId||"");
+    return !opponentTeamIds.has(teamId)||(sale?.leagueId&&sale.leagueId!==league.id);
+  });
+  if(unassigned.length)blockers.push(`${unassigned.length} venduti non sono assegnati a una squadra della lega.`);
+
+  const teams=league.teams.map((team,index)=>{
+    const name=String(team.name||"").trim(),nameKey=normalizePlayerName(name);
+    if(!nameKey)blockers.push(`La squadra ${index+1} non ha un nome valido.`);
+    else if(seenNames.has(nameKey))blockers.push(`Il nome squadra “${name}” è duplicato.`);
+    else seenNames.set(nameKey,team.id);
+    const rows=rosterForLeagueTeam(team).map(item=>{
+      const player=item.p,runtimeId=String(player.id),key=normalizePlayerName(player.name);
+      const match=official.byRuntimeId.get(runtimeId)||official.byKey.get(key)||null;
+      const officialId=match?.officialId||"",price=Number(item.price);
+      if(!officialId)missingIds.push({teamName:name,player});
+      if(!Number.isSafeInteger(price)||price<minBid)invalidPrices.push({teamName:name,player,price:item.price});
+      if(officialId){
+        const previous=seenOfficialIds.get(officialId);
+        if(previous)duplicateIds.push({officialId,first:previous,second:{teamName:name,player}});
+        else seenOfficialIds.set(officialId,{teamName:name,player});
+      }
+      return {teamId:team.id,teamName:name,player,officialId,price};
+    });
+    const spent=rows.reduce((sum,row)=>sum+(Number.isFinite(row.price)?row.price:0),0);
+    if(!rows.length)blockers.push(`${name||`Squadra ${index+1}`}: assegna almeno un giocatore prima dell'export.`);
+    if(rows.length>rosterTotal)blockers.push(`${name}: ${rows.length} giocatori, oltre i ${rosterTotal} previsti.`);
+    if(spent>budget)blockers.push(`${name}: spesa ${spent} superiore al budget di ${budget} crediti.`);
+    return {id:team.id,name,isMine:!!team.isMine,rows,spent,remaining:budget-spent};
+  });
+  if(missingIds.length)blockers.push(`${missingIds.length} giocatori non hanno un ID ufficiale verificabile nel Listone corrente.`);
+  if(invalidPrices.length)blockers.push(`${invalidPrices.length} assegnazioni hanno un prezzo non valido.`);
+  if(duplicateIds.length)blockers.push(`${duplicateIds.length} ID ufficiali risultano assegnati più di una volta.`);
+  const totalPlayers=teams.reduce((sum,team)=>sum+team.rows.length,0);
+  if(!totalPlayers)blockers.push("Non ci sono giocatori assegnati da esportare.");
+  return {
+    league,teams,totalPlayers,matched:totalPlayers-missingIds.length,missingIds,invalidPrices,duplicateIds,unassigned,
+    blockers:[...new Set(blockers)],complete:teams.every(team=>team.rows.length===rosterTotal),snapshot,
+    filename:fa2RosterCsvFilename(league.name)
+  };
+}
+
+function fa2GenerateLegheRosterCsv(exportData){
+  if(!exportData||exportData.blockers?.length)throw new Error("Il CSV non può essere generato finché sono presenti controlli bloccanti.");
+  const lines=[];
+  exportData.teams.forEach(team=>{
+    lines.push("$,$,$");
+    team.rows.forEach(row=>lines.push(`${fa2CsvCell(team.name)},${row.officialId},${row.price}`));
+  });
+  return `${lines.join("\n")}\n`;
+}
+window.fa2BuildRosterCsvExport=fa2BuildRosterCsvExport;
+window.fa2GenerateLegheRosterCsv=fa2GenerateLegheRosterCsv;
+
+function fa2RosterExportBlockersHTML(pending){
+  if(!pending.blockers.length)return "";
+  const details=[];
+  pending.missingIds.slice(0,5).forEach(row=>details.push(`${row.player.name} (${row.teamName}): ID ufficiale assente`));
+  pending.invalidPrices.slice(0,3).forEach(row=>details.push(`${row.player.name} (${row.teamName}): prezzo non valido`));
+  pending.unassigned.slice(0,3).forEach(player=>details.push(`${player.name}: venduto senza squadra`));
+  const messages=[...pending.blockers,...details];
+  return `<div class="roster-export-blockers"><b>ESPORTAZIONE BLOCCATA</b><span>Correggi questi dati prima di creare il file:</span><ul>${messages.slice(0,9).map(message=>`<li>${esc(message)}</li>`).join("")}${messages.length>9?`<li>Altri ${messages.length-9} controlli da correggere.</li>`:""}</ul></div>`;
+}
+
+function fa2RosterExportPreviewHTML(pending){
+  const rosterTotal=configuredRosterTotal(),complete=pending.complete,ready=!pending.blockers.length;
+  return `<div class="dialog-body roster-import-dialog-body roster-export-dialog-body">
+    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Esporta rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
+    <div class="roster-import-file"><span>${esc(pending.filename)}</span><b>${pending.teams.length} squadre · ${pending.totalPlayers} giocatori</b><small>${pending.matched}/${pending.totalPlayers} ID ufficiali verificati</small></div>
+    <div class="roster-export-format"><b>FORMATO LEGHE FANTACALCIO</b><span>Nessuna intestazione · separatore $,$,$ · squadra, ID ufficiale, prezzo</span></div>
+    <div class="roster-import-team-list">${pending.teams.map(team=>`<div class="roster-import-team ${team.isMine?"mine":""}"><span><b>${esc(team.name)}</b><small>${team.rows.length}/${rosterTotal} giocatori${team.isMine?" · MIA SQUADRA":""}</small></span><span><b>${fmt(team.spent)} spesi</b><small>${fmt(team.remaining)} residui</small></span></div>`).join("")}</div>
+    <div class="roster-import-status ${complete?"complete":"partial"}"><b>${complete?"ROSE COMPLETE":"ROSE PARZIALI"}</b><span>${complete?"Ogni squadra ha il numero di giocatori previsto dal regolamento.":"Il file fotografa soltanto le assegnazioni presenti in questo momento."}</span></div>
+    ${fa2RosterExportBlockersHTML(pending)}
+    ${ready?`<div class="roster-export-ready"><b>CSV VERIFICATO</b><span>Il file ha superato anche la rilettura interna: squadre, ID e prezzi tornano senza differenze.</span></div>`:""}
+    <div class="roster-import-safety"><b>Esportazione in sola lettura</b><span>Scaricare o condividere il CSV non modifica rose, assegnazioni, prezzi, squadre, strategia o localStorage.</span></div>
+    <div class="dialog-actions roster-import-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog()">Annulla</button><button class="primary" id="downloadRosterCsvBtn" type="button" ${ready?"":"disabled"}>ESPORTA CSV</button></div>
+  </div>`;
+}
+
+async function fa2StartRosterCsvExport(){
+  if(!state.league)return;
+  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Preparo l'export</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Verifico squadre, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
+  try{
+    const snapshot=await fa2RosterImportSnapshot(),pending=fa2BuildRosterCsvExport(snapshot);
+    if(!pending.blockers.length){
+      pending.csv=fa2GenerateLegheRosterCsv(pending);
+      const parsed=fa2ParseFantacalcioRosterCsv(pending.csv),resolved=fa2ResolveRosterCsv(parsed,snapshot);
+      if(parsed.teams.length!==pending.teams.length||resolved.totalPlayers!==pending.totalPlayers)throw new Error("La verifica interna del CSV non restituisce lo stesso numero di squadre e giocatori.");
+      pending.roundTrip={teams:parsed.teams.length,players:resolved.totalPlayers};
+    }
+    fa2PendingRosterCsvExport=pending;
+    fa2OpenRosterImportDialog(fa2RosterExportPreviewHTML(pending));
+    const button=$("#downloadRosterCsvBtn");if(button&&!button.disabled)button.onclick=fa2DownloadRosterCsv;
+  }catch(error){
+    fa2PendingRosterCsvExport=null;
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUN FILE CREATO</div><h2>Export non disponibile</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"Controllo non riuscito.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
+  }
+}
+
+function fa2DownloadRosterCsvFallback(blob,filename){
+  const url=URL.createObjectURL(blob),link=document.createElement("a");
+  link.href=url;link.download=filename;link.style.display="none";document.body.appendChild(link);link.click();link.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),2500);
+}
+
+async function fa2DownloadRosterCsv(){
+  const pending=fa2PendingRosterCsvExport;
+  if(!pending?.csv||pending.blockers?.length)return;
+  try{
+    const parsed=fa2ParseFantacalcioRosterCsv(pending.csv);
+    if(parsed.teams.length!==pending.teams.length||parsed.totalPlayers!==pending.totalPlayers)throw new Error("Verifica finale non superata.");
+    const blob=new Blob([pending.csv],{type:"text/csv;charset=utf-8"});
+    const nav=typeof navigator!=="undefined"?navigator:null;
+    const isIOS=!!nav&&(/iPad|iPhone|iPod/.test(nav.userAgent||"")||((nav.platform||"")==="MacIntel"&&Number(nav.maxTouchPoints)>1));
+    let shared=false;
+    if(isIOS&&typeof File==="function"&&typeof nav?.share==="function"&&typeof nav?.canShare==="function"){
+      const file=new File([blob],pending.filename,{type:"text/csv",lastModified:Date.now()});
+      if(nav.canShare({files:[file]})){
+        try{await nav.share({files:[file],title:"Rose Leghe Fantacalcio"});shared=true}
+        catch(error){if(error?.name==="AbortError")return}
+      }
+    }
+    if(!shared)fa2DownloadRosterCsvFallback(blob,pending.filename);
+    const button=$("#downloadRosterCsvBtn");
+    if(button){const old=button.textContent;button.textContent="CSV CREATO";setTimeout(()=>{if(button.isConnected)button.textContent=old},1800)}
+  }catch(error){alert(`CSV non creato: ${error?.message||"errore imprevisto"}.`)}
+}
+window.fa2StartRosterCsvExport=fa2StartRosterCsvExport;
+window.fa2DownloadRosterCsv=fa2DownloadRosterCsv;
+
 function leagueRosterRows(items){
   if(!items.length)return '<div class="league-empty">Nessun giocatore assegnato.</div>';
   const groups=["POR","DIF","CEN","ATT"];
@@ -3765,7 +3941,7 @@ function renderLeagues(){
     $("#leagueView").innerHTML=`
       <div class="section-title"><h2>Leghe</h2></div>
       <div class="league-csv-import-card primary-import">
-        <div><span>FANTACALCIO CSV · A5.2</span><b>Importa automaticamente lega, squadre, rose e prezzi</b><small>Scegli il file esportato da Leghe Fantacalcio; dopo l'anteprima indicherai qual è la tua squadra.</small></div>
+        <div><span>FANTACALCIO CSV · A5.2.1</span><b>Importa automaticamente lega, squadre, rose e prezzi</b><small>Scegli il file esportato da Leghe Fantacalcio; dopo l'anteprima indicherai qual è la tua squadra.</small></div>
         <button id="importLeagueRosterBtn" class="primary" type="button">IMPORTA ROSE CSV</button>
       </div>
       <div class="card league-empty-state">
@@ -3794,8 +3970,8 @@ function renderLeagues(){
     </div>
 
     <div class="league-csv-import-card">
-      <div><span>ROSE FANTACALCIO · A5.2</span><b>${league.importSource==="fantacalcio-csv"?"Rose collegate al CSV ufficiale":"Importa o aggiorna le rose della lega"}</b><small>${league.importSource==="fantacalcio-csv"?`${league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).length,0)} assegnazioni · reimportazione senza duplicati`:"Anteprima e snapshot di sicurezza prima di ogni modifica"}</small></div>
-      <button id="importLeagueRosterBtn" class="ghost" type="button">IMPORTA / AGGIORNA CSV</button>
+      <div><span>ROSE FANTACALCIO · A5.2.1</span><b>Importa, aggiorna o esporta le rose ufficiali</b><small>${league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).length,0)} assegnazioni correnti · export in sola lettura con verifica ID e prezzi</small></div>
+      <div class="league-csv-actions"><button id="exportLeagueRosterBtn" class="primary" type="button">ESPORTA ROSE CSV</button><button id="importLeagueRosterBtn" class="ghost" type="button">IMPORTA / AGGIORNA CSV</button></div>
     </div>
 
     <div class="league-summary-grid intelligence-league-summary">
@@ -3856,6 +4032,7 @@ function renderLeagues(){
     ${unassigned.length?`<div class="section-title"><h2>Venduti non assegnati</h2><span class="muted">${unassigned.length}</span></div><div class="card">${unassigned.map(p=>`<button class="unassigned-sale" data-id="${p.id}"><span>${playerNameHTML(p)}<small>${p.club} · ${p.role}</small></span><b>${state.sold[p.id]?.price?fmt(state.sold[p.id].price)+" cr":"—"}</b></button>`).join("")}</div>`:""}
   `;
 
+  $("#exportLeagueRosterBtn").onclick=fa2StartRosterCsvExport;
   $("#importLeagueRosterBtn").onclick=fa2ChooseRosterCsv;
 
   $("#saveLeagueNamesBtn").onclick=()=>{
@@ -4060,7 +4237,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.2").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.2.1").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -4481,7 +4658,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.2</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.2.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
