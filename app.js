@@ -2397,7 +2397,7 @@ function fa2NextCallReminderHTML(snapshot){
   const comparison=cap?`${reference} ${fmt(cap)}${reminder.strategicMax&&reminder.liveMax?` · MAX live ${fmt(reminder.liveMax)}`:""}`:"Nessun tetto disponibile";
   const next=fa2NextCallSummary(snapshot),budget=snapshot?.budget||reminder.budget||{};
   return `<section class="fa2-next-call-reminder ${over?"over":"ok"}" aria-live="polite">
-    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.1</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
+    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.2</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
     <div class="fa2-next-call-purchase"><div><span>${esc(reminder.name)} · ${fmt(reminder.price)} cr</span><small>${esc(comparison)}${reminder.slot?` · slot ${esc(reminder.slot)}`:""}</small></div></div>
     <div class="fa2-next-call-target"><span>${esc(next.label)}</span><b>${esc(next.value)}</b><small>${esc(next.detail)}</small></div>
     <div class="fa2-next-call-budget"><b>${fmt(budget.remaining||0)} cr residui</b><span>${budget.missing??0} posti · MAX prossimo ${fmt(budget.maxNext||0)}</span></div>
@@ -2447,7 +2447,7 @@ function fa2AuctionCopilotHTML(context,snapshot=null){
   }
   const identity=x.player?`${kitHTML(x.player.club,'sm',x.player.club)}<div><b>${esc(x.player.name)}</b><small>${esc(x.detail||`Slot ${x.slotLabel||"—"}`)}</small></div>`:`<div><b>${esc(x.slotLabel||x.status)}</b><small>Fase ${esc(state.auctionPhase)}</small></div>`;
   return `<section class="fa2-live-copilot ${escAttr(x.mode)}">
-    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.1</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
+    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.2</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
     <div class="fa2-copilot-decision"><div class="fa2-copilot-player"><strong>${esc(x.badge)}</strong>${identity}</div>${action}</div>
     <div class="fa2-copilot-metrics">${metrics}</div>
     <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
@@ -3444,6 +3444,281 @@ function createLeague(){
 }
 window.createLeague=createLeague;
 
+/* Alpha 5.2 — import rose Fantacalcio CSV.
+   Il file esportato da Leghe Fantacalcio contiene squadra, ID profilo
+   ufficiale e prezzo. L'import usa l'ID del profilo presente nel Listone
+   validato: nessun fuzzy matching e nessuna seconda fonte di verità. */
+let fa2PendingRosterCsvImport=null;
+
+function fa2CsvRows(text){
+  const source=String(text||"").replace(/^\uFEFF/,"");
+  const rows=[];let row=[],cell="",quoted=false;
+  for(let i=0;i<source.length;i++){
+    const ch=source[i];
+    if(quoted){
+      if(ch==='"'){
+        if(source[i+1]==='"'){cell+='"';i++}else quoted=false;
+      }else cell+=ch;
+      continue;
+    }
+    if(ch==='"'&&cell===""){quoted=true;continue}
+    if(ch===","){row.push(cell);cell="";continue}
+    if(ch==="\n"){
+      row.push(cell);rows.push(row);row=[];cell="";continue;
+    }
+    if(ch!=="\r")cell+=ch;
+  }
+  if(quoted)throw new Error("CSV non valido: virgolette non chiuse.");
+  if(cell!==""||row.length){row.push(cell);rows.push(row)}
+  return rows;
+}
+
+function fa2ParseFantacalcioRosterCsv(text){
+  const groups=new Map(),players=[],seenIds=new Set(),errors=[];
+  const rawRows=fa2CsvRows(text);
+  let meaningful=0;
+  rawRows.forEach((raw,index)=>{
+    const cells=raw.map(value=>String(value??"").trim());
+    if(!cells.some(Boolean))return;
+    if(cells.every(value=>value==="$"||value===""))return;
+    meaningful++;
+    const [teamName,officialId,priceRaw,...extra]=cells;
+    const header=meaningful===1&&!/^\d+$/.test(officialId||"")&&/(squad|team|rosa)/i.test(teamName||"");
+    if(header)return;
+    if(!teamName||!/^\d+$/.test(officialId||"")||!/^[0-9]+$/.test(priceRaw||"")||extra.some(Boolean)){
+      errors.push(`Riga ${index+1}: attesi squadra, ID giocatore e prezzo.`);return;
+    }
+    const price=Number(priceRaw),minBid=configuredMinBid();
+    if(!Number.isSafeInteger(price)||price<minBid){errors.push(`Riga ${index+1}: prezzo non valido per ${teamName}.`);return}
+    if(seenIds.has(officialId)){errors.push(`Riga ${index+1}: ID giocatore ${officialId} duplicato.`);return}
+    seenIds.add(officialId);
+    const normalized=normalizePlayerName(teamName);
+    if(!normalized){errors.push(`Riga ${index+1}: nome squadra non valido.`);return}
+    if(!groups.has(normalized))groups.set(normalized,{key:String(groups.size),name:teamName,rows:[],spent:0});
+    const team=groups.get(normalized),entry={teamKey:team.key,teamName:team.name,officialId,price,row:index+1};
+    team.rows.push(entry);team.spent+=price;players.push(entry);
+  });
+  if(errors.length)throw new Error(errors.slice(0,5).join("\n"));
+  const teams=[...groups.values()],rosterTotal=configuredRosterTotal(),budget=configuredBudget();
+  if(teams.length<4||teams.length>20)throw new Error(`CSV non valido: trovate ${teams.length} squadre (consentite 4–20).`);
+  if(!players.length)throw new Error("CSV non valido: nessuna assegnazione trovata.");
+  teams.forEach(team=>{
+    if(team.rows.length>rosterTotal)throw new Error(`${team.name}: ${team.rows.length} giocatori, oltre i ${rosterTotal} previsti dal regolamento.`);
+    if(team.spent>budget)throw new Error(`${team.name}: spesa ${team.spent} superiore al budget configurato di ${budget} crediti.`);
+  });
+  return {teams,players,totalPlayers:players.length,sourceRows:rawRows.length};
+}
+window.fa2ParseFantacalcioRosterCsv=fa2ParseFantacalcioRosterCsv;
+
+function fa2OfficialRosterId(player){
+  const explicit=String(player?.officialId||"").trim();
+  if(/^\d+$/.test(explicit))return explicit;
+  const url=String(player?.profileUrl||"").replace(/\/+$/,"");
+  const match=url.match(/\/(\d+)$/);
+  return match?match[1]:"";
+}
+
+async function fa2RosterImportSnapshot(){
+  try{
+    const response=await fetch(`./listone-current.json?t=${Date.now()}`,{cache:"no-store"});
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const snapshot=await response.json();
+    if(!syncSnapshotValid(snapshot))throw new Error("snapshot Listone non valido");
+    return snapshot;
+  }catch(error){
+    if(syncSnapshotValid(appliedListoneSync))return appliedListoneSync;
+    throw new Error(`Listone ufficiale non disponibile: ${error?.message||"controllo non riuscito"}.`);
+  }
+}
+
+function fa2ResolveRosterCsv(parsed,snapshot){
+  const byOfficialId=new Map(),basePlayers=basePlayerMap();
+  (snapshot.players||[]).forEach(player=>{
+    const officialId=fa2OfficialRosterId(player);
+    if(officialId&&!byOfficialId.has(officialId))byOfficialId.set(officialId,player);
+  });
+  const missing=[],internalIds=new Set(),clubLimit=configuredClubLimit();
+  const teams=parsed.teams.map(team=>{
+    const clubCounts={};
+    const rows=team.rows.map(row=>{
+      const player=byOfficialId.get(row.officialId);
+      if(!player){missing.push(row);return {...row,player:null,internalId:""}}
+      const key=player.key||normalizePlayerName(player.name),internalId=String(basePlayers.get(key)?.id??player.id??`fc_${key}`);
+      if(internalIds.has(internalId))throw new Error(`Il Listone collega più righe allo stesso giocatore: ${player.name}.`);
+      internalIds.add(internalId);clubCounts[player.club]=(clubCounts[player.club]||0)+1;
+      return {...row,player,internalId};
+    });
+    const clubViolation=clubLimit?Object.entries(clubCounts).find(([,count])=>count>clubLimit):null;
+    if(clubViolation)throw new Error(`${team.name}: ${clubViolation[1]} giocatori ${clubViolation[0]}, oltre il limite di ${clubLimit}. Verifica il Regulation Studio.`);
+    return {...team,rows,remaining:configuredBudget()-team.spent};
+  });
+  if(missing.length){
+    const ids=missing.slice(0,8).map(row=>row.officialId).join(", ");
+    throw new Error(`${missing.length} ID non presenti nel Listone ufficiale (${ids}). Aggiorna il Listone e riprova.`);
+  }
+  return {teams,totalPlayers:parsed.totalPlayers,matched:parsed.totalPlayers,missing:0,snapshot};
+}
+
+function fa2ReadTextFile(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result||""));
+    reader.onerror=()=>reject(new Error("Il file non può essere letto."));
+    reader.readAsText(file);
+  });
+}
+
+function fa2OpenRosterImportDialog(html){
+  $("#rosterImportDialogContent").innerHTML=html;
+  const dialog=$("#rosterImportDialog");if(!dialog.open)dialog.showModal();
+}
+function closeRosterImportDialog(){
+  fa2PendingRosterCsvImport=null;
+  const input=$("#leagueRosterCsvInput");if(input)input.value="";
+  const dialog=$("#rosterImportDialog");if(dialog?.open)dialog.close();
+}
+window.closeRosterImportDialog=closeRosterImportDialog;
+
+function fa2RosterImportLeagueName(fileName){
+  if(state.league?.name)return state.league.name;
+  const cleaned=String(fileName||"").replace(/^'+/,"").replace(/\.csv$/i,"").replace(/_rosters?_\d+$/i,"").replace(/[-_]+/g," ").trim();
+  return !cleaned||/senza nome|lega fantacalcio/i.test(cleaned)?"Lega Fantacalcio":cleaned.slice(0,40);
+}
+
+function fa2RosterImportCurrentDiff(ownKey){
+  if(!fa2PendingRosterCsvImport||ownKey==="")return null;
+  const intended=new Map();
+  fa2PendingRosterCsvImport.resolved.teams.forEach(team=>team.rows.forEach(row=>intended.set(row.internalId,{mine:team.key===ownKey,teamName:team.name,price:row.price})));
+  let added=0,changed=0,unchanged=0;
+  intended.forEach((next,id)=>{
+    const own=state.purchases?.[id],sale=state.sold?.[id];
+    if(!own&&!sale){added++;return}
+    const sameOwner=next.mine?!!own:!!sale&&normalizePlayerName(soldTeamName(sale))===normalizePlayerName(next.teamName);
+    const currentPrice=Number((own||sale)?.price||0);
+    if(sameOwner&&currentPrice===next.price)unchanged++;else changed++;
+  });
+  const currentIds=new Set([...Object.keys(state.purchases||{}),...Object.keys(state.sold||{})]);
+  let removed=0;currentIds.forEach(id=>{if(!intended.has(String(id)))removed++});
+  return {added,changed,unchanged,removed};
+}
+
+function fa2RosterImportDiffHTML(ownKey){
+  const diff=fa2RosterImportCurrentDiff(ownKey);
+  if(!diff)return '<span>Seleziona la tua squadra per calcolare le differenze con i dati presenti.</span>';
+  return `<div><b>${diff.added}</b><span>nuovi</span></div><div><b>${diff.changed}</b><span>aggiornati</span></div><div><b>${diff.unchanged}</b><span>invariati</span></div><div class="${diff.removed?"warn":""}"><b>${diff.removed}</b><span>non nel CSV</span></div>`;
+}
+
+function fa2UpdateRosterImportSelection(){
+  const select=$("#rosterImportMine"),button=$("#applyRosterImportBtn"),diff=$("#rosterImportDiff");
+  const ownKey=select?.value??"";
+  if(button)button.disabled=ownKey==="";
+  if(diff)diff.innerHTML=fa2RosterImportDiffHTML(ownKey);
+  $$('[data-roster-import-team]').forEach(row=>row.classList.toggle("mine",row.dataset.rosterImportTeam===ownKey));
+}
+
+function fa2RosterImportPreviewHTML(pending){
+  const {resolved,fileName}=pending,budget=configuredBudget(),rosterTotal=configuredRosterTotal();
+  const existingMine=normalizePlayerName(state.league?.teams?.find(team=>team.isMine)?.name||"");
+  const existingMatch=resolved.teams.find(team=>normalizePlayerName(team.name)===existingMine)?.key??"";
+  const complete=resolved.teams.every(team=>team.rows.length===rosterTotal);
+  return `<div class="dialog-body roster-import-dialog-body">
+    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2</div><h2>Anteprima rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
+    <div class="roster-import-file"><span>${esc(fileName)}</span><b>${resolved.teams.length} squadre · ${resolved.totalPlayers} giocatori</b><small>${resolved.matched}/${resolved.totalPlayers} ID ufficiali riconosciuti</small></div>
+    <form id="rosterImportForm">
+      <div class="roster-import-fields"><label>Nome lega<input id="rosterImportLeagueName" maxlength="40" value="${escAttr(fa2RosterImportLeagueName(fileName))}" required></label><label>La mia squadra<select id="rosterImportMine" required><option value="">Seleziona…</option>${resolved.teams.map(team=>`<option value="${escAttr(team.key)}" ${team.key===existingMatch?"selected":""}>${esc(team.name)}</option>`).join("")}</select></label></div>
+      <div class="roster-import-regulation"><b>Regolamento attivo: ${budget} crediti · rosa ${rosterTotal}</b><span>Il CSV contiene i prezzi, ma non il budget iniziale. Residui e MAX vengono calcolati dal Regulation Studio.</span></div>
+      <div class="roster-import-team-list">${resolved.teams.map(team=>`<div class="roster-import-team" data-roster-import-team="${escAttr(team.key)}"><span><b>${esc(team.name)}</b><small>${team.rows.length}/${rosterTotal} giocatori</small></span><span><b>${fmt(team.spent)} spesi</b><small>${fmt(team.remaining)} residui</small></span></div>`).join("")}</div>
+      <div class="roster-import-status ${complete?"complete":"partial"}"><b>${complete?"ROSE COMPLETE":"FOTOGRAFIA PARZIALE"}</b><span>${complete?"Tutte le squadre hanno il numero di giocatori previsto.":"Verranno importati solo i giocatori presenti; gli slot mancanti resteranno aperti."}</span></div>
+      <div><span class="roster-import-diff-title">Differenze rispetto all'app</span><div id="rosterImportDiff" class="roster-import-diff">${fa2RosterImportDiffHTML(existingMatch)}</div></div>
+      <div class="roster-import-safety"><b>Importazione sicura</b><span>Il CSV diventa la fotografia corrente della lega. Prima di applicarlo viene salvato uno snapshot; eventuali assegnazioni non presenti nel file torneranno disponibili ma resteranno recuperabili da Registro / Undo.</span></div>
+      <div class="dialog-actions roster-import-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog()">Annulla</button><button class="primary" id="applyRosterImportBtn" type="submit" ${existingMatch===""?"disabled":""}>IMPORTA ROSE</button></div>
+    </form>
+  </div>`;
+}
+
+async function fa2StartRosterCsvImport(file){
+  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2</div><h2>Controllo file</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Leggo rose, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
+  try{
+    const [text,snapshot]=await Promise.all([fa2ReadTextFile(file),fa2RosterImportSnapshot()]);
+    const parsed=fa2ParseFantacalcioRosterCsv(text),resolved=fa2ResolveRosterCsv(parsed,snapshot);
+    fa2PendingRosterCsvImport={fileName:file.name,parsed,resolved,snapshot};
+    fa2OpenRosterImportDialog(fa2RosterImportPreviewHTML(fa2PendingRosterCsvImport));
+    $("#rosterImportMine").addEventListener("change",fa2UpdateRosterImportSelection);
+    $("#rosterImportForm").addEventListener("submit",event=>{event.preventDefault();fa2ApplyRosterCsvImport()});
+    fa2UpdateRosterImportSelection();
+  }catch(error){
+    fa2PendingRosterCsvImport=null;
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUNA MODIFICA APPLICATA</div><h2>CSV non importabile</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"File non valido.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
+  }
+}
+
+function fa2RosterImportTeamId(team,index,isMine,used){
+  if(isMine){used.add("mine");return "mine"}
+  const normalized=normalizePlayerName(team.name);
+  const existing=state.league?.teams?.find(item=>!item.isMine&&normalizePlayerName(item.name)===normalized&&item.id!=="mine"&&!used.has(item.id));
+  let id=existing?.id||`csv_team_${index+1}_${normalized.slice(0,18)||"squadra"}`;
+  let suffix=2;while(used.has(id)){id=`csv_team_${index+1}_${normalized.slice(0,14)||"squadra"}_${suffix++}`}
+  used.add(id);return id;
+}
+
+function fa2ApplyRosterCsvImport(){
+  const pending=fa2PendingRosterCsvImport,ownKey=$("#rosterImportMine")?.value??"";
+  const leagueName=$("#rosterImportLeagueName")?.value.trim()||"";
+  if(!pending||ownKey===""||!leagueName)return;
+  if(!protectedPermission("importare e sincronizzare le rose Fantacalcio"))return;
+  const resolved=pending.resolved,total=resolved.totalPlayers;
+  if(!confirm(`Importare ${total} assegnazioni in ${resolved.teams.length} squadre?\n\nLa situazione attuale verrà salvata in Snapshot e Registro / Undo.`))return;
+  const before=captureAuctionCore(),strategyBefore=fa2CaptureStrategySlotStates(),previousListone=appliedListoneSync;
+  const importedAt=Date.now(),leagueId=state.league?.id||`league_${importedAt}`,usedIds=new Set();
+  const ordered=[...resolved.teams.filter(team=>team.key===ownKey),...resolved.teams.filter(team=>team.key!==ownKey)];
+  const teamByKey=new Map();
+  const teams=ordered.map((team,index)=>{
+    const isMine=team.key===ownKey,id=fa2RosterImportTeamId(team,index,isMine,usedIds);
+    const out={id,name:team.name,isMine,importSource:"fantacalcio-csv"};teamByKey.set(team.key,out);return out;
+  });
+  const nextPurchases={},nextSold={};let sequence=0;
+  resolved.teams.forEach(team=>team.rows.forEach(row=>{
+    const id=String(row.internalId),old=state.purchases?.[id]||state.sold?.[id],at=Number(old?.at)||importedAt+sequence++;
+    if(team.key===ownKey)nextPurchases[id]={price:row.price,at,source:"fantacalcio-csv",importedAt};
+    else nextSold[id]={price:row.price,at,teamId:teamByKey.get(team.key).id,leagueId,source:"fantacalcio-csv",importedAt};
+  }));
+  if(Object.keys(nextPurchases).length+Object.keys(nextSold).length!==total){alert("Importazione annullata: conteggio assegnazioni non coerente.");return}
+  const backupBase=getBackupActionCount();
+  try{
+    createSafetySnapshot("Prima import rose Fantacalcio CSV",true);
+    appliedListoneSync=pending.snapshot;localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(appliedListoneSync));allPlayers=buildAllPlayers();
+    const unresolved=[...Object.keys(nextPurchases),...Object.keys(nextSold)].filter(id=>!getPlayer(id));
+    if(unresolved.length)throw new Error(`${unresolved.length} giocatori non disponibili dopo il sync del Listone.`);
+    state.league={id:leagueId,name:leagueName,size:teams.length,teams,createdAt:state.league?.createdAt||importedAt,importedAt,importSource:"fantacalcio-csv"};
+    state.purchases=nextPurchases;state.sold=nextSold;
+    save();saveSold();saveLeague();
+    localStorage.setItem(SAFETY_KEYS.backupActionCount,String(backupBase+total));
+    fa2AfterAuctionStateChange("ROSTERS_IMPORTED","",strategyBefore);
+    recordOperation("IMPORT_ROSE",`Importate rose Fantacalcio · ${teams.length} squadre · ${total} giocatori`,before,{undoable:true,count:false});
+    updateBackupAlert();refresh();
+    const mine=resolved.teams.find(team=>team.key===ownKey),mineRemaining=configuredBudget()-(mine?.spent||0);
+    fa2PendingRosterCsvImport=null;
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body roster-import-success"><div class="safety-modal-head"><div><div class="eyebrow">IMPORT COMPLETATO · A5.2</div><h2>Rose sincronizzate</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-finished"><span>OK</span><h2>${teams.length} squadre · ${total} giocatori</h2><p>${esc(mine?.name||"La mia squadra")} · ${fmt(mineRemaining)} crediti residui</p></div><div class="listone-sync-success-box"><b>Motori ricalcolati</b><span>Dashboard, Leghe, Strategia, budget, inflazione, Opponent Intelligence e Copilot leggono ora la stessa fotografia.</span></div><div class="dialog-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog();switchView('leagueView')">Apri Leghe</button><button class="primary" type="button" onclick="closeRosterImportDialog();switchView('dashboardView')">Dashboard</button></div></div>`);
+  }catch(error){
+    appliedListoneSync=previousListone;
+    if(previousListone)localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(previousListone));else localStorage.removeItem(LISTONE_SYNC_STORAGE);
+    allPlayers=buildAllPlayers();applyAuctionCore(before);
+    alert(`Importazione annullata: ${error?.message||"errore imprevisto"}. I dati precedenti sono stati ripristinati.`);
+  }
+}
+window.fa2ApplyRosterCsvImport=fa2ApplyRosterCsvImport;
+
+function fa2ChooseRosterCsv(){
+  const input=$("#leagueRosterCsvInput");if(!input)return;
+  input.value="";input.click();
+}
+window.fa2ChooseRosterCsv=fa2ChooseRosterCsv;
+
+const fa2RosterCsvInput=$("#leagueRosterCsvInput");
+if(fa2RosterCsvInput)fa2RosterCsvInput.addEventListener("change",event=>{
+  const file=event.target.files?.[0];if(file)fa2StartRosterCsvImport(file);
+});
+
 $("#cancelLeagueCreate").addEventListener("click",()=>{
   if($("#leagueDialog").open) $("#leagueDialog").close();
 });
@@ -3489,11 +3764,16 @@ function renderLeagues(){
   if(!state.league){
     $("#leagueView").innerHTML=`
       <div class="section-title"><h2>Leghe</h2></div>
+      <div class="league-csv-import-card primary-import">
+        <div><span>FANTACALCIO CSV · A5.2</span><b>Importa automaticamente lega, squadre, rose e prezzi</b><small>Scegli il file esportato da Leghe Fantacalcio; dopo l'anteprima indicherai qual è la tua squadra.</small></div>
+        <button id="importLeagueRosterBtn" class="primary" type="button">IMPORTA ROSE CSV</button>
+      </div>
       <div class="card league-empty-state">
         <h3>Nessuna lega creata</h3>
-        <p class="muted">Crea la lega per assegnare i giocatori venduti, calcolare crediti residui, spesa per reparto e prevedere i moduli degli avversari.</p>
-        <button id="createLeagueBtn" class="primary">＋ Crea lega</button>
+        <p class="muted">Se non hai un CSV puoi ancora creare la lega e inserire manualmente le assegnazioni.</p>
+        <button id="createLeagueBtn" class="ghost">＋ Crea lega manualmente</button>
       </div>`;
+    $("#importLeagueRosterBtn").onclick=fa2ChooseRosterCsv;
     $("#createLeagueBtn").onclick=createLeague;
     return;
   }
@@ -3511,6 +3791,11 @@ function renderLeagues(){
     <div class="section-title league-title-row">
       <div><div class="eyebrow">Lega attiva · fase ${state.auctionPhase}</div><h2>${esc(league.name)}</h2></div>
       <span class="muted">${league.size} squadre</span>
+    </div>
+
+    <div class="league-csv-import-card">
+      <div><span>ROSE FANTACALCIO · A5.2</span><b>${league.importSource==="fantacalcio-csv"?"Rose collegate al CSV ufficiale":"Importa o aggiorna le rose della lega"}</b><small>${league.importSource==="fantacalcio-csv"?`${league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).length,0)} assegnazioni · reimportazione senza duplicati`:"Anteprima e snapshot di sicurezza prima di ogni modifica"}</small></div>
+      <button id="importLeagueRosterBtn" class="ghost" type="button">IMPORTA / AGGIORNA CSV</button>
     </div>
 
     <div class="league-summary-grid intelligence-league-summary">
@@ -3570,6 +3855,8 @@ function renderLeagues(){
 
     ${unassigned.length?`<div class="section-title"><h2>Venduti non assegnati</h2><span class="muted">${unassigned.length}</span></div><div class="card">${unassigned.map(p=>`<button class="unassigned-sale" data-id="${p.id}"><span>${playerNameHTML(p)}<small>${p.club} · ${p.role}</small></span><b>${state.sold[p.id]?.price?fmt(state.sold[p.id].price)+" cr":"—"}</b></button>`).join("")}</div>`:""}
   `;
+
+  $("#importLeagueRosterBtn").onclick=fa2ChooseRosterCsv;
 
   $("#saveLeagueNamesBtn").onclick=()=>{
     const before=captureAuctionCore(),oldName=state.league.name;
@@ -3773,7 +4060,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.1").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.2").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -3991,7 +4278,7 @@ function fa2CaptureStrategySlotStates(){
 let fa2LastStrategyAuctionEvent=null;
 function fa2AfterAuctionStateChange(type,playerId,beforeStates=null){
   const eventType=String(type||"AUCTION_CHANGED"),eventPlayerId=String(playerId||"");
-  if(["STATE_RESTORED","AUCTION_RESET","BACKUP_IMPORTED"].includes(eventType)||(["PLAYER_PURCHASE_REMOVED","PLAYER_PURCHASE_UNDONE"].includes(eventType)&&fa2LastPurchaseReminder?.playerId===eventPlayerId))fa2LastPurchaseReminder=null;
+  if(["STATE_RESTORED","AUCTION_RESET","BACKUP_IMPORTED","ROSTERS_IMPORTED"].includes(eventType)||(["PLAYER_PURCHASE_REMOVED","PLAYER_PURCHASE_UNDONE"].includes(eventType)&&fa2LastPurchaseReminder?.playerId===eventPlayerId))fa2LastPurchaseReminder=null;
   invalidateAuctionIntel();
   fa2InvalidateModuleAdvisor();
   const afterStates=fa2CaptureStrategySlotStates(),before=beforeStates||{};
@@ -4194,7 +4481,7 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.2</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
     <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
