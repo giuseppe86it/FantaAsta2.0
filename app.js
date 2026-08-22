@@ -589,7 +589,7 @@ function openSafetyCenter(){
   const undo=(state.undoStack||[]).slice().reverse();
   const snaps=(state.snapshots||[]).slice().reverse();
   $("#safetyDialogContent").innerHTML=`<div class="dialog-body safety-dialog-body">
-    <div class="safety-modal-head"><div><div class="eyebrow">Safety & Control</div><h2>Registro e ripristino</h2></div><button class="ghost" onclick="closeSafetyDialog()">✕</button></div>
+    <div class="safety-modal-head"><div><div class="eyebrow">Safety & Control</div><h2>Registro e ripristino</h2></div><button class="ghost" type="button" aria-label="Chiudi Registro e ripristino" onclick="closeSafetyDialog()">✕</button></div>
     <div class="safety-tabs-summary"><span>Registro <b>${state.operationLog.length}</b></span><span>Undo <b>${state.undoStack.length}/10</b></span><span>Snapshot <b>${state.snapshots.length}/8</b></span></div>
     <div class="safety-action-row"><button class="primary" onclick="createSafetySnapshot('Snapshot manuale');closeSafetyDialog();refresh()">Salva snapshot</button><button class="ghost" onclick="openFinalReport()">Report asta</button></div>
     <section class="safety-section"><h3>Undo multiplo</h3>${undo.length?undo.map(x=>`<button class="undo-entry" onclick="undoOperation('${x.id}')"><span><b>${esc(x.label)}</b><small>${formatLogTime(x.at)}</small></span><strong>Ripristina</strong></button>`).join(""):`<div class="safety-empty">Nessuna operazione da annullare.</div>`}</section>
@@ -649,7 +649,7 @@ function finalReportData(){
 function openFinalReport(){
   const r=finalReportData();
   const topSpend=r.owned.slice().sort((a,b)=>Number(state.purchases[b.id]?.price||0)-Number(state.purchases[a.id]?.price||0)).slice(0,3);
-  $("#safetyDialogContent").innerHTML=`<div class="dialog-body final-report-body"><div class="safety-modal-head"><div><div class="eyebrow">Report asta</div><h2>${r.owned.length===r.rosterTotal?"Rosa completata":"Report parziale"}</h2></div><button class="ghost" onclick="closeSafetyDialog()">✕</button></div>
+  $("#safetyDialogContent").innerHTML=`<div class="dialog-body final-report-body"><div class="safety-modal-head"><div><div class="eyebrow">Report asta</div><h2>${r.owned.length===r.rosterTotal?"Rosa completata":"Report parziale"}</h2></div><button class="ghost" type="button" aria-label="Chiudi report asta" onclick="closeSafetyDialog()">✕</button></div>
     <div class="report-status ${r.valid?"ok":"warn"}">${r.valid?"Rosa formalmente completa":"Rosa ancora in costruzione"} · ${r.owned.length}/${r.rosterTotal}</div>
     <div class="report-kpis"><div><span>Speso</span><b>${fmt(r.total)}</b></div><div><span>Residuo</span><b>${fmt(r.remaining)}</b></div><div><span>Media</span><b>${fmt(r.avg)}</b></div><div><span>Modulo</span><b>${activeStrategy().module}</b></div></div>
     <div class="report-reps">${["POR","DIF","CEN","ATT"].map(rep=>`<div><span>${rep}</span><b>${fmt(r.byRep[rep])}</b></div>`).join("")}</div>
@@ -700,11 +700,12 @@ function playersAuctionLiveStripHTML(){
   const assigned=assignedPlayers().length;
   if(!state.league && !assigned)return "";
   const available=allPlayers.filter(p=>isMarketEligiblePlayer(p)&&!playerAssignment(p).assigned).length;
-  return `<div class="players-auction-live-strip">
+  return `<button type="button" class="players-auction-live-strip" onclick="openAuctionLive()" aria-label="Apri Asta Live: ${assigned} assegnati, ${available} disponibili">
     <span><i></i> ASTA LIVE</span>
     <b>${assigned} assegnati</b>
     <small>${available} disponibili · sincronizzazione immediata</small>
-  </div>`;
+    <strong aria-hidden="true">APRI ›</strong>
+  </button>`;
 }
 function roleTokens(role){return String(role||"").split("/").map(x=>x.trim()).filter(Boolean)}
 function activeStrategy(){return STRATEGIES[state.strategy] || STRATEGIES.A}
@@ -1598,7 +1599,7 @@ function openDashboardAssignmentEditor(id){
   const current=dashboardAssignmentData(id);if(!current)return;
   const p=current.p;
   $("#safetyDialogContent").innerHTML=`<div class="dialog-body dashboard-assignment-editor">
-    <div class="safety-modal-head"><div><div class="eyebrow">Asta Live</div><h2>Modifica assegnazione</h2></div><button class="ghost" onclick="closeSafetyDialog()">✕</button></div>
+    <div class="safety-modal-head"><div><div class="eyebrow">Asta Live</div><h2>Modifica assegnazione</h2></div><button class="ghost" type="button" aria-label="Chiudi modifica assegnazione" onclick="closeSafetyDialog()">✕</button></div>
     <div class="dashboard-assignment-player">${kitHTML(p.club,'sm',p.club)}<span><b>${playerNameHTML(p)}</b><small>${p.club} · ${p.role}</small></span></div>
     <input id="dashAssignPlayerId" type="hidden" value="${escAttr(p.id)}">
     <label>Squadra aggiudicataria
@@ -1975,8 +1976,8 @@ function renderFormationsView(){
       <span class="muted">${formations.length} squadre</span>
     </div>
     <div class="formations-update-card ${live?"live":"base"}">
-      <div><span>ULTIMO AGGIORNAMENTO FORMAZIONI</span><b>${latestFormationUpdate()}</b><small>${live?`Fantacalcio.it · sincronizzato ${Math.round(age)} min fa`:"Fallback formations.js"}${formationsLiveError?` · ${esc(formationsLiveError)}`:""}</small></div>
-      <button class="formation-refresh-btn" onclick="refreshFormationsLive()" ${formationsLiveLoading?"disabled":""}>${syncText}</button>
+      <div><span>ULTIMO AGGIORNAMENTO FORMAZIONI</span><b>${latestFormationUpdate()}</b><small>${live?`Fantacalcio.it · sincronizzato ${Math.round(age)} min fa`:"Fallback formations.js"} · ${esc(syncText)}${formationsLiveError?` · ${esc(formationsLiveError)}`:""}</small></div>
+      <button type="button" class="formation-refresh-btn" aria-label="Aggiorna probabili formazioni" onclick="refreshFormationsLive()" ${formationsLiveLoading?"disabled":""}>${formationsLiveLoading?"Aggiorno…":"Aggiorna"}</button>
     </div>
     <div class="formation-algo-note"><b>Titolarità collegata all'algoritmo</b><span>Le percentuali influenzano Strategia A/B, TARGET dinamici, ALT 1-3 e ranking Asta Live.</span></div>
     ${formations.length?`<div class="formations-dedicated-grid">${sortedFormations().map(f=>formationListCardHTML(f,formations.indexOf(f))).join("")}</div>`:`<div class="card muted">Formazioni non disponibili.</div>`}`;
@@ -1987,7 +1988,7 @@ window.openFormation=index=>{
   const pitchLines=f.lines.slice().reverse().map(line=>`<div class="formation-line large">${line.map(p=>{const pr=Number(p.probability||starterProbability(formationPlayerCandidate(p.name,f.club)).prob);return `<div class="formation-player large"><b>${esc(p.name)}</b><span>${esc(p.role)} · ${Math.round(pr)}%</span></div>`}).join("")}</div>`).join("");
   const bench=(f.bench||[]).filter(x=>Number(x.probability)>=20).sort((a,b)=>Number(b.probability)-Number(a.probability)).slice(0,12);
   $("#formationDialogContent").innerHTML=`<div class="dialog-body formation-dialog-body">
-    <div class="formation-modal-head"><div><div class="eyebrow">Probabile formazione ${f.liveSource?'· LIVE':''}</div><h2>${f.team} · ${f.module}</h2><p>Ruoli Mantra · aggiornamento ${f.updated}</p></div><button class="ghost" onclick="formationDialog.close()">✕</button></div>
+    <div class="formation-modal-head"><div><div class="eyebrow">Probabile formazione ${f.liveSource?'· LIVE':''}</div><h2>${f.team} · ${f.module}</h2><p>Ruoli Mantra · aggiornamento ${f.updated}</p></div><button class="ghost" type="button" aria-label="Chiudi formazione ${escAttr(f.team)}" onclick="formationDialog.close()">✕</button></div>
     <div class="large-pitch"><i class="pitch-half"></i><i class="pitch-circle"></i><div class="formation-lines">${pitchLines}</div></div>
     ${bench.length?`<div class="formation-dialog-bench"><b>Possibili titolari / ballottaggi</b><div>${bench.map(x=>`<span>${esc(x.name)} <strong>${Math.round(Number(x.probability||0))}%</strong><small>${esc(x.role||formationRoleFor(x.name,f.club))}</small></span>`).join("")}</div></div>`:""}
     ${setPieceHTML(f.club)}
@@ -2190,7 +2191,7 @@ function liveResultHTML(p,intel=getAuctionIntel(),recommendations=null,meta=null
   const badges=[planBadge,!plan&&staticTarget?'<em class="live-result-badge target">TARGET</em>':"",!plan&&dynamic?'<em class="live-result-badge dynamic">DA PRENDERE</em>':"",altBadge,starterBadge].join("");
   const rankedClass=plan?.kind==="target"?"plan-target":plan?.kind==="alt"?"ranked-alternative":dynamic?"dynamic-target":(!staticTarget&&meta?.altRank&&meta.altRank<=3?"ranked-alternative":"");
   const strat=plan?.maxRecommended?`<small>STRAT ${fmt(plan.maxRecommended)}</small>`:'<small>MAX live</small>';
-  return `<button class="live-result ${rankedClass}" data-id="${p.id}"><span class="live-result-main">${kitHTML(p.club,'sm',p.club)}<span><b>${esc(p.name)} ${badges}</b><small>${p.club} · ${p.role} · FVM ${p.fvm||0}</small></span></span><strong>${riskIcon(live.risk)} ${fmt(live.live)}${strat}</strong></button>`;
+  return `<button type="button" role="listitem" class="live-result ${rankedClass}" data-id="${p.id}" aria-label="Apri ${escAttr(p.name)}, ${p.club}, ruolo ${escAttr(p.role)}, MAX live ${fmt(live.live)}${plan?.maxRecommended?`, MAX strategico ${fmt(plan.maxRecommended)}`:""}"><span class="live-result-main">${kitHTML(p.club,'sm',p.club)}<span><b>${esc(p.name)} ${badges}</b><small>${p.club} · ${p.role} · FVM ${p.fvm||0}</small></span></span><strong>${riskIcon(live.risk)} ${fmt(live.live)}${strat}</strong></button>`;
 }
 function updateLiveResults(query="",preparedContext=null){
   const context=preparedContext&&String(query||"")===""?preparedContext:fa2LiveContext(query);
@@ -2229,7 +2230,7 @@ function selectLivePlayer(id){
   const target=$("#liveSelected");if(!target)return;
   target.innerHTML=`<div class="live-player-card ${plan?.kind==="target"?"plan-recommended":dynamic?"recommended":""}">
     ${targetSignal}
-    <div class="live-player-head"><div class="live-player-identity">${kitHTML(p.club,'live',p.club)}<div><span>${p.club} · ${p.role} · Titolarità ${Math.round(starterProbability(p).prob)}%</span><b>${esc(p.name)}${plan?.kind==="target"?' <em class="live-inline-plan">TARGET</em>':plan?.kind==="alt"?` <em class="live-inline-alt">ALT ${plan.rank}</em>`:staticTarget?' <em class="live-inline-target">TARGET</em>':""}${!plan&&dynamic?' <em class="live-inline-dynamic">DA PRENDERE</em>':""}</b><button type="button" class="live-watch ${isWatchlisted(p.id)?"active":""}" onclick='toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"SEGUITO":"SEGUI"}</button></div></div><strong>${riskIcon(live.risk)} ${live.risk}</strong></div>
+    <div class="live-player-head"><div class="live-player-identity">${kitHTML(p.club,'live',p.club)}<div><span>${p.club} · ${p.role} · Titolarità ${Math.round(starterProbability(p).prob)}%</span><b>${esc(p.name)}${plan?.kind==="target"?' <em class="live-inline-plan">TARGET</em>':plan?.kind==="alt"?` <em class="live-inline-alt">ALT ${plan.rank}</em>`:staticTarget?' <em class="live-inline-target">TARGET</em>':""}${!plan&&dynamic?' <em class="live-inline-dynamic">DA PRENDERE</em>':""}</b><button type="button" class="live-watch ${isWatchlisted(p.id)?"active":""}" aria-pressed="${isWatchlisted(p.id)?"true":"false"}" aria-label="${isWatchlisted(p.id)?"Rimuovi":"Aggiungi"} ${escAttr(p.name)} ${isWatchlisted(p.id)?"dalla":"alla"} watchlist" onclick='toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"SEGUITO":"SEGUI"}</button></div></div><strong>${riskIcon(live.risk)} ${live.risk}</strong></div>
     <div class="live-price-grid ${planCap?"with-strategy":""}">
       <div><span>FVM</span><b>${p.fvm||0}</b></div>
       <div><span>MAX iniziale</span><b>${fmt(live.base)}</b></div>
@@ -2397,7 +2398,7 @@ function fa2NextCallReminderHTML(snapshot){
   const comparison=cap?`${reference} ${fmt(cap)}${reminder.strategicMax&&reminder.liveMax?` · MAX live ${fmt(reminder.liveMax)}`:""}`:"Nessun tetto disponibile";
   const next=fa2NextCallSummary(snapshot),budget=snapshot?.budget||reminder.budget||{};
   return `<section class="fa2-next-call-reminder ${over?"over":"ok"}" aria-live="polite">
-    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.2.1</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
+    <div class="fa2-next-call-head"><div><span>POST ACQUISTO · α5.3</span><b>${esc(status)}</b></div><button type="button" onclick="fa2DismissNextCallReminder()" aria-label="Chiudi promemoria">×</button></div>
     <div class="fa2-next-call-purchase"><div><span>${esc(reminder.name)} · ${fmt(reminder.price)} cr</span><small>${esc(comparison)}${reminder.slot?` · slot ${esc(reminder.slot)}`:""}</small></div></div>
     <div class="fa2-next-call-target"><span>${esc(next.label)}</span><b>${esc(next.value)}</b><small>${esc(next.detail)}</small></div>
     <div class="fa2-next-call-budget"><b>${fmt(budget.remaining||0)} cr residui</b><span>${budget.missing??0} posti · MAX prossimo ${fmt(budget.maxNext||0)}</span></div>
@@ -2447,12 +2448,14 @@ function fa2AuctionCopilotHTML(context,snapshot=null){
   }
   const identity=x.player?`${kitHTML(x.player.club,'sm',x.player.club)}<div><b>${esc(x.player.name)}</b><small>${esc(x.detail||`Slot ${x.slotLabel||"—"}`)}</small></div>`:`<div><b>${esc(x.slotLabel||x.status)}</b><small>Fase ${esc(state.auctionPhase)}</small></div>`;
   return `<section class="fa2-live-copilot ${escAttr(x.mode)}">
-    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.2.1</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
+    <div class="fa2-copilot-head"><div><span>AUCTION COPILOT · α5.3</span><b>${esc(x.status)}</b></div><em>${esc(state.auctionPhase)}</em></div>
     <div class="fa2-copilot-decision"><div class="fa2-copilot-player"><strong>${esc(x.badge)}</strong>${identity}</div>${action}</div>
     <div class="fa2-copilot-metrics">${metrics}</div>
-    <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
     ${x.coveredNote?`<div class="fa2-copilot-covered-note">✓ ${esc(x.coveredNote)}</div>`:""}
-    <div class="fa2-copilot-runtime"><div class="${module.switch?"switch":""}"><span>${esc(module.label||"MODULO")}</span><b>${esc(module.value||"—")}</b><small>${esc(module.detail||"")}</small></div><div><span>BUDGET RUNTIME</span><b>${fmt(budget.remaining||0)} cr · ${budget.missing??0} posti</b><small>riserva ${fmt(budget.reserve||0)} · libero ${fmt(budget.free||0)}</small></div></div>
+    <details class="fa2-copilot-more"><summary>Perché e contesto</summary><div>
+      <div class="fa2-copilot-why"><span>PERCHÉ</span><p>${esc(x.why)}</p></div>
+      <div class="fa2-copilot-runtime"><div class="${module.switch?"switch":""}"><span>${esc(module.label||"MODULO")}</span><b>${esc(module.value||"—")}</b><small>${esc(module.detail||"")}</small></div><div><span>BUDGET RUNTIME</span><b>${fmt(budget.remaining||0)} cr · ${budget.missing??0} posti</b><small>riserva ${fmt(budget.reserve||0)} · libero ${fmt(budget.free||0)}</small></div></div>
+    </div></details>
   </section>`;
 }
 function fa2OpenCopilotPlayer(id){
@@ -2463,13 +2466,13 @@ window.fa2OpenCopilotPlayer=fa2OpenCopilotPlayer;
 function renderAuctionLive(){
   const phase=AUCTION_PHASES[phaseIndex()],liveContext=fa2LiveContext(""),copilotSnapshot=fa2AuctionCopilotSnapshot(liveContext);
   $("#liveDialogContent").innerHTML=`<div class="dialog-body live-dialog-body">
-    <div class="live-dialog-head"><div><span class="eyebrow">${phase.icon} Fase ${phase.id}</span><h2>Asta Live</h2></div><button id="closeLiveBtn" class="ghost">✕</button></div>
+    <div class="live-dialog-head"><div><span class="eyebrow">${phase.icon} Fase ${phase.id}</span><h2>Asta Live</h2></div><button id="closeLiveBtn" class="ghost" type="button" aria-label="Chiudi Asta Live">✕</button></div>
     ${fa2NextCallReminderHTML(copilotSnapshot)}
     ${fa2AuctionCopilotHTML(liveContext,copilotSnapshot)}
-    <input id="liveSearchInput" class="search live-search" placeholder="Cerca giocatore…" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <input id="liveSearchInput" class="search live-search" aria-label="Cerca giocatore in Asta Live" placeholder="Cerca giocatore…" autocomplete="off" autocapitalize="off" spellcheck="false">
     <div id="liveSelected"></div>
     <div class="live-results-label"><span>${phase.label}</span><small>TARGET → alternative → migliori profili</small></div>
-    <div id="liveResults"></div>
+    <div id="liveResults" role="list" aria-label="Giocatori disponibili"></div>
   </div>`;
   $("#closeLiveBtn").onclick=()=>$("#liveDialog").close();
   $("#liveSearchInput").addEventListener("input",e=>updateLiveResults(e.target.value));
@@ -2567,7 +2570,7 @@ window.closeListoneSyncDialog=closeListoneSyncDialog;
 
 async function checkListoneUpdate(){
   openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-    <div class="listone-sync-modal-head"><div><span class="eyebrow">FANTACALCIO.IT</span><h2>Controllo listone</h2></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+    <div class="listone-sync-modal-head"><div><span class="eyebrow">FANTACALCIO.IT</span><h2>Controllo listone</h2></div><button class="ghost" type="button" aria-label="Chiudi controllo listone" onclick="closeListoneSyncDialog()">✕</button></div>
     <div class="listone-sync-loading"><span class="sync-spinner"></span><b>Scarico l'ultimo snapshot validato…</b><small>Nessun dato dell'asta viene modificato durante il controllo.</small></div>
     <button class="ghost full-btn" onclick="closeListoneSyncDialog()">Annulla controllo</button>
   </div>`);
@@ -2577,7 +2580,7 @@ async function checkListoneUpdate(){
     const snapshot=await res.json();
     if(snapshot?.sourceKind!=="official-fantacalcio"){
       openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-        <div class="listone-sync-modal-head"><div><span class="eyebrow">PRIMO AVVIO</span><h2>Sync non ancora pronto</h2></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+        <div class="listone-sync-modal-head"><div><span class="eyebrow">PRIMO AVVIO</span><h2>Sync non ancora pronto</h2></div><button class="ghost" type="button" aria-label="Chiudi sincronizzazione listone" onclick="closeListoneSyncDialog()">✕</button></div>
         <div class="listone-sync-warning">⏳ Il file presente è ancora la base iniziale dell'app. Il workflow GitHub deve completare almeno un controllo ufficiale prima di poter aggiornare.</div>
         <p class="muted">La tua asta non viene toccata. Puoi continuare a usare normalmente il listone già presente e riprovare tra qualche minuto.</p>
         <button class="primary full-btn" onclick="closeListoneSyncDialog()">Chiudi</button>
@@ -2588,14 +2591,14 @@ async function checkListoneUpdate(){
     pendingListoneSnapshot=snapshot;
     if(!diff.changes.length){
       openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-        <div class="listone-sync-modal-head"><div><span class="eyebrow">LISTONE UFFICIALE</span><h2>Sei già aggiornato</h2></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+        <div class="listone-sync-modal-head"><div><span class="eyebrow">LISTONE UFFICIALE</span><h2>Sei già aggiornato</h2></div><button class="ghost" type="button" aria-label="Chiudi aggiornamento listone" onclick="closeListoneSyncDialog()">✕</button></div>
         <div class="listone-sync-success-box"><b>${snapshot.activePlayers} giocatori attivi</b><span>Snapshot ${listoneSyncDateLabel(snapshot.generatedAt)}</span></div>
         <p class="muted">Non risultano differenze rispetto ai dati applicati nell'app.</p><button class="primary full-btn" onclick="closeListoneSyncDialog()">Continua</button>
       </div>`);return;
     }
     const c=diff.counts,preview=diff.changes.slice(0,24);
     openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-      <div class="listone-sync-modal-head"><div><span class="eyebrow">LISTONE UFFICIALE</span><h2>Aggiornamento trovato</h2><small class="muted">${snapshot.activePlayers} attivi · ${listoneSyncDateLabel(snapshot.generatedAt)}</small></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+      <div class="listone-sync-modal-head"><div><span class="eyebrow">LISTONE UFFICIALE</span><h2>Aggiornamento trovato</h2><small class="muted">${snapshot.activePlayers} attivi · ${listoneSyncDateLabel(snapshot.generatedAt)}</small></div><button class="ghost" type="button" aria-label="Chiudi aggiornamento listone" onclick="closeListoneSyncDialog()">✕</button></div>
       <div class="sync-summary-grid">
         <div><strong>+${c.new||0}</strong><span>nuovi</span></div><div><strong>−${c.out||0}</strong><span>fuori</span></div>
         <div><strong>${(c.club||0)+(c.role||0)}</strong><span>club/ruoli</span></div><div><strong>${(c.fvm||0)+(c.quote||0)}</strong><span>valori</span></div>
@@ -2610,7 +2613,7 @@ async function checkListoneUpdate(){
     $("#applyListoneSyncBtn").onclick=applyPendingListoneUpdate;
   }catch(err){
     openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-      <div class="listone-sync-modal-head"><div><span class="eyebrow">NESSUNA MODIFICA APPLICATA</span><h2>Controllo non riuscito</h2></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+      <div class="listone-sync-modal-head"><div><span class="eyebrow">NESSUNA MODIFICA APPLICATA</span><h2>Controllo non riuscito</h2></div><button class="ghost" type="button" aria-label="Chiudi controllo listone" onclick="closeListoneSyncDialog()">✕</button></div>
       <div class="listone-sync-warning">${esc(err?.message||"Errore di rete")}</div>
       <p class="muted">Per sicurezza l'app mantiene l'ultimo listone valido. L'asta e le rose non vengono modificate.</p>
       <button class="primary full-btn" onclick="closeListoneSyncDialog()">Chiudi</button>
@@ -2623,7 +2626,7 @@ function applyPendingListoneUpdate(){
   appliedListoneSync=snapshot;localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(snapshot));
   allPlayers=buildAllPlayers();pendingListoneSnapshot=null;invalidateAuctionIntel();refresh();
   openListoneSyncDialog(`<div class="dialog-body listone-sync-dialog">
-    <div class="listone-sync-modal-head"><div></div><button class="ghost" onclick="closeListoneSyncDialog()">✕</button></div>
+    <div class="listone-sync-modal-head"><div></div><button class="ghost" type="button" aria-label="Chiudi aggiornamento listone" onclick="closeListoneSyncDialog()">✕</button></div>
     <div class="listone-sync-finished"><span>OK</span><h2>Listone aggiornato</h2><p>${snapshot.activePlayers} giocatori attivi · ${listoneSyncDateLabel(snapshot.generatedAt)}</p></div>
     <div class="listone-sync-success-box"><b>Dati asta preservati</b><span>Ricalcolati scarsità, mercato, inflazione e Auction Intelligence.</span></div>
     <button class="primary full-btn" onclick="closeListoneSyncDialog()">Continua</button>
@@ -2635,11 +2638,12 @@ function playerRow(p){
   const b=state.purchases[p.id], sold=isSold(p.id); const sig=b?signal(p,b.price):null;
   const strategic=!!p.strategic, assignment=playerAssignment(p);
   const assignedClass=assignment.assigned?`assigned ${assignment.mine?"assigned-mine":"assigned-opponent"}`:"";
-  return `<div class="player ${b?"bought":""} ${sold?"sold":""} ${assignedClass} ${strategic?"strategic-player":"market-player"}" data-id="${p.id}">
+  const openLabel=`Apri ${playerNameText(p)}, ${p.club}, ruolo ${p.role}${assignment.assigned?`, assegnato a ${assignment.teamName} per ${fmt(assignment.price)} crediti`:""}`;
+  return `<div class="player ${b?"bought":""} ${sold?"sold":""} ${assignedClass} ${strategic?"strategic-player":"market-player"}" data-id="${p.id}" role="group" aria-label="${escAttr(playerNameText(p))}">
     <div class="player-main">
       ${kitHTML(p.club,'row',p.club)}
       <div class="player-copy">
-        <h3>${playerNameHTML(p)}<button type="button" class="watch-btn ${isWatchlisted(p.id)?"active":""}" aria-label="Watchlist" onclick='event.stopPropagation();toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"SEG":"+"}</button>
+        <h3>${playerNameHTML(p)}<button type="button" class="watch-btn ${isWatchlisted(p.id)?"active":""}" aria-label="${isWatchlisted(p.id)?"Rimuovi":"Aggiungi"} ${escAttr(playerNameText(p))} ${isWatchlisted(p.id)?"dalla":"alla"} watchlist" aria-pressed="${isWatchlisted(p.id)?"true":"false"}" onclick='event.stopPropagation();toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"SEG":"+"}</button>
           ${p.notes&&p.notes.includes("TARGET")?'<span class="badge target">TARGET</span>':""}
           ${strategic?'<span class="badge strategic-badge">200</span>':'<span class="badge listone-badge">LISTONE</span>'}
           ${p.outOfListone?'<span class="badge out-listone-badge">FUORI LISTONE</span>':""}
@@ -2655,6 +2659,7 @@ function playerRow(p){
     <div class="player-market-state">
       <div class="price">${assignment.assigned?"ASSEGNATO":b?fmt(b.price):"MAX "+fmt(p.maxPrice)}</div>
       <div class="meta">${assignment.assigned?esc(assignment.teamName):b?sig.t:strategic?"strategico":"da FVM"}</div>
+      <button type="button" class="player-open-control" aria-label="${escAttr(openLabel)}" onclick='openPlayer(${idArg(p.id)})'>›</button>
     </div>
   </div>`;
 }
@@ -2865,16 +2870,17 @@ function renderPlayers(){
     ${listoneSyncCardHTML()}
     ${playersAuctionLiveStripHTML()}
     <div class="pool-switch">
-      <button id="poolStrategic" class="${state.poolMode==="strategic"?"active":""}">
+      <button id="poolStrategic" class="${state.poolMode==="strategic"?"active":""}" type="button" aria-pressed="${state.poolMode==="strategic"?"true":"false"}">
         <b>Strategici</b><span>${currentStrategicPlayers().filter(p=>!p.outOfListone).length}</span>
       </button>
-      <button id="poolAll" class="${state.poolMode==="all"?"active":""}">
+      <button id="poolAll" class="${state.poolMode==="all"?"active":""}" type="button" aria-pressed="${state.poolMode==="all"?"true":"false"}">
         <b>Tutto il listone</b><span>${allPlayers.filter(p=>!p.outOfListone).length}</span>
       </button>
     </div>
 
     <div class="player-search-wrap">
       <input class="search" id="searchInput"
+        aria-label="Cerca giocatore, club o ruolo"
         placeholder="Cerca giocatore, club o ruolo…"
         autocomplete="off"
         autocapitalize="off"
@@ -2900,13 +2906,13 @@ function renderPlayers(){
         <span>Squadre</span>
         <small>selezione multipla</small>
       </div>
-      <div class="club-chips" aria-label="Filtro squadre Serie A">
-        <button type="button" class="club-chip club-chip-all ${!state.clubFilter?.length?"active":""}" data-club="__ALL__"><span>TUT</span></button>
-        ${currentClubOptions().map(([code,name])=>`<button type="button" class="club-chip ${selectedClubSet().has(code)?"active":""}" data-club="${escAttr(code)}" title="${escAttr(name)}">${kitHTML(code,"xs",name)}<span>${clubDisplayAbbr(code,name)}</span></button>`).join("")}
+      <div class="club-chips" role="group" aria-label="Filtro squadre Serie A">
+        <button type="button" class="club-chip club-chip-all ${!state.clubFilter?.length?"active":""}" data-club="__ALL__" aria-pressed="${!state.clubFilter?.length?"true":"false"}" aria-label="Mostra tutte le squadre"><span>TUT</span></button>
+        ${currentClubOptions().map(([code,name])=>`<button type="button" class="club-chip ${selectedClubSet().has(code)?"active":""}" data-club="${escAttr(code)}" title="${escAttr(name)}" aria-label="Filtra ${escAttr(name)}" aria-pressed="${selectedClubSet().has(code)?"true":"false"}">${kitHTML(code,"xs",name)}<span>${clubDisplayAbbr(code,name)}</span></button>`).join("")}
       </div>
     </div>
 
-    <div class="chips role-filter-chips">
+    <div class="chips role-filter-chips" role="group" aria-label="Filtro per ruolo e stato">
       ${roles.map(r=>{
         const poolForCount=(r==="Venduti"?allPlayers:modePool).filter(playerMatchesClubFilter);
         const count=r==="Tutti"
@@ -2916,13 +2922,13 @@ function renderPlayers(){
           : r==="Venduti"
             ? poolForCount.filter(p=>isSold(p.id)).length
             : poolForCount.filter(p=>(!p.outOfListone || playerAssignment(p).assigned)&&playerMatchesRoleFilter(p,r,state.poolMode)).length;
-        return `<button class="chip ${state.filter===r?"active":""}" data-role="${r}">
+        return `<button type="button" class="chip ${state.filter===r?"active":""}" data-role="${r}" aria-pressed="${state.filter===r?"true":"false"}">
           ${r}<small>${count}</small>
         </button>`;
       }).join("")}
     </div>
 
-    <div id="playerResultsCount" class="muted" style="margin:8px 2px">${playerResultsInfo(data.list)}</div>
+    <div id="playerResultsCount" class="muted" role="status" aria-live="polite" style="margin:8px 2px">${playerResultsInfo(data.list)}</div>
     <div id="playerResults">${data.content}</div>`;
 
   $("#updateListoneBtn").onclick=checkListoneUpdate;
@@ -2979,7 +2985,9 @@ function renderPlayers(){
   bindPlayers();
 }
 function bindPlayers(){
-  $$(".player[data-id]").forEach(el=>el.onclick=()=>openPlayer(el.dataset.id));
+  $$(".player[data-id]").forEach(el=>{
+    el.onclick=e=>{if(!e.target.closest("button,a,input,select,textarea"))openPlayer(el.dataset.id)};
+  });
 }
 function fa2StatValue(v,digits=1){
   const n=Number(v);
@@ -3049,10 +3057,17 @@ function openPlayer(id){
   const p=getPlayer(id); if(!p)return;
   const b=state.purchases[p.id],sold=isSold(p.id),strategic=!!p.strategic;
   const live=liveMaxForPlayer(p);
+  const playerActions=b
+    ? `<button class="ghost" onclick='editPurchase(${idArg(p.id)})'>Modifica acquisto</button><button class="dangerbtn" onclick='removePurchase(${idArg(p.id)})'>Annulla acquisto</button>`
+    : sold
+      ? `<button class="ghost" onclick='editSold(${idArg(p.id)})'>Modifica vendita</button><button class="ghost" onclick='restoreSold(${idArg(p.id)})'>Ripristina mercato</button>`
+      : p.outOfListone
+        ? `<button class="ghost" onclick="playerDialog.close()">Chiudi</button>`
+        : `<button class="primary" onclick='startPurchase(${idArg(p.id)})'>Acquista</button><button class="soldbtn" onclick='markSold(${idArg(p.id)})'>Venduto</button>`;
   $("#playerDialogContent").innerHTML=`<div class="dialog-body">
-    <div class="section-title">
+    <div class="section-title player-dialog-head">
       <div class="player-dialog-title">${kitHTML(p.club,'dialog',p.club)}<div><div class="eyebrow">${p.club} · ${p.role} · ${strategic?"STRATEGICO":"LISTONE"}</div><h2>${playerNameHTML(p)}</h2></div></div>
-      <div class="player-title-actions"><button type="button" class="watch-detail ${isWatchlisted(p.id)?"active":""}" onclick='toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"Seguito":"Segui"}</button><button class="ghost" onclick="playerDialog.close()">✕</button></div>
+      <div class="player-title-actions"><button type="button" class="watch-detail ${isWatchlisted(p.id)?"active":""}" aria-label="${isWatchlisted(p.id)?"Rimuovi":"Aggiungi"} ${escAttr(playerNameText(p))} ${isWatchlisted(p.id)?"dalla":"alla"} watchlist" aria-pressed="${isWatchlisted(p.id)?"true":"false"}" onclick='toggleWatchlist(${idArg(p.id)})'>${isWatchlisted(p.id)?"Seguito":"Segui"}</button><button type="button" class="ghost" aria-label="Chiudi scheda giocatore" onclick="playerDialog.close()">✕</button></div>
     </div>
     <div class="grid">
       <div class="card metric"><span>FVM</span><strong>${p.fvm||0}</strong></div>
@@ -3060,8 +3075,12 @@ function openPlayer(id){
       <div class="card metric"><span>MAX LIVE</span><strong>${fmt(live.live)}</strong></div>
       <div class="card metric"><span>Inflazione</span><strong>${pctLabel(live.inflation,1)}</strong></div>
     </div>
-    ${fa2PlayerIntelligenceHTML(p)}
+    <div class="dialog-actions player-quick-actions">${playerActions}</div>
     ${fa2PlayerPlanHTML(p)}
+    <details class="player-intelligence-details">
+      <summary><span>Player Intelligence</span><small>Apri statistiche avanzate</small></summary>
+      ${fa2PlayerIntelligenceHTML(p)}
+    </details>
     <div class="card" style="margin-top:10px">
       <div class="line"><span>Ruoli Mantra</span><b>${p.role}</b></div>
       <div class="line"><span>Fascia</span><b>${p.tier||"—"}</b></div>
@@ -3077,16 +3096,6 @@ function openPlayer(id){
       ${playerAssignment(p).assigned?`<div class="line"><span>Assegnato a</span><b>${esc(playerAssignment(p).teamName)}</b></div>`:""}
       ${playerAssignment(p).assigned?`<div class="line"><span>Prezzo assegnazione</span><b>${playerAssignment(p).price>0?fmt(playerAssignment(p).price)+" cr":"—"}</b></div>`:""}
       ${p.notes?`<div class="line"><span>Note</span><b>${p.notes}</b></div>`:""}
-    </div>
-    <div class="dialog-actions">
-      ${b
-        ? `<button class="ghost" onclick='editPurchase(${idArg(p.id)})'>Modifica acquisto</button><button class="dangerbtn" onclick='removePurchase(${idArg(p.id)})'>Annulla acquisto</button>`
-        : sold
-          ? `<button class="ghost" onclick='editSold(${idArg(p.id)})'>Modifica vendita</button><button class="ghost" onclick='restoreSold(${idArg(p.id)})'>Ripristina mercato</button>`
-          : p.outOfListone
-            ? `<button class="ghost" onclick="playerDialog.close()">Chiudi</button>`
-            : `<button class="primary" onclick='startPurchase(${idArg(p.id)})'>Acquista</button><button class="soldbtn" onclick='markSold(${idArg(p.id)})'>Venduto</button>`
-      }
     </div>
   </div>`;
   $("#playerDialog").dataset.playerId=String(p.id);
@@ -3200,7 +3209,6 @@ function startPurchase(id,returnContext=undefined){
   const econ=teamEconomy(mineTeam()),live=liveMaxForPlayer(p);
   const guide=fa2StrategyGuidanceForPlayer(p);
   $("#purchaseEconomicInfo").innerHTML=`<span>MAX possibile <b>${fmt(econ.maxNext)}</b></span><span>MAX live <b>${fmt(live.live)}</b></span>${guide?.maxRecommended?`<span>MAX strategico <b>${fmt(guide.maxRecommended)}</b></span>`:""}${guide?.dynamicBudget?`<span>Budget slot <b>${fmt(guide.dynamicBudget)}</b></span>`:""}`;
-  fa2UpdatePurchaseStrategySignal(p,"");
   $("#purchaseDialog").showModal();
   $("#purchasePrice").focus();
 }
@@ -3215,24 +3223,14 @@ window.editPurchase=id=>{
   $("#purchaseTitle").textContent="Modifica "+playerNameText(p);
   $("#confirmPurchase").textContent="Salva";
   $("#purchasePrice").min=String(configuredMinBid());$("#purchasePrice").value=current?.price ?? "";
-  const s=signal(p,current?.price ?? "");
-  $("#purchaseSignal").className="signal "+s.c;
-  $("#purchaseSignal").textContent=s.t;
+  $("#purchaseSignal").textContent="";
   const econ=teamEconomy(mineTeam(),p.id),live=liveMaxForPlayer(p);
   const guide=fa2StrategyGuidanceForPlayer(p);
   $("#purchaseEconomicInfo").innerHTML=`<span>MAX possibile <b>${fmt(econ.maxNext)}</b></span><span>MAX live <b>${fmt(live.live)}</b></span>${guide?.maxRecommended?`<span>MAX strategico <b>${fmt(guide.maxRecommended)}</b></span>`:""}${guide?.dynamicBudget?`<span>Budget slot <b>${fmt(guide.dynamicBudget)}</b></span>`:""}`;
-  fa2UpdatePurchaseStrategySignal(p,current?.price ?? "");
   $("#purchaseDialog").showModal();
   $("#purchasePrice").focus();
   $("#purchasePrice").select();
 };
-$("#purchasePrice").addEventListener("input",e=>{
-  const p=getPlayer(purchaseId),s=signal(p,e.target.value),st=fa2StrategyPriceState(p,e.target.value);
-  if(st?.className==="warn"){$("#purchaseSignal").className="signal orange";$("#purchaseSignal").textContent="ATTENZIONE STRATEGIA"}
-  else if(st?.className==="stop"){$("#purchaseSignal").className="signal red";$("#purchaseSignal").textContent="STOP STRATEGICO"}
-  else{$("#purchaseSignal").className="signal "+s.c;$("#purchaseSignal").textContent=s.t}
-  fa2UpdatePurchaseStrategySignal(p,e.target.value);
-});
 function cancelPurchaseFlow(){
   if(document.activeElement) document.activeElement.blur();
   const dialog=$("#purchaseDialog");
@@ -3240,7 +3238,6 @@ function cancelPurchaseFlow(){
   $("#purchasePrice").value="";
   $("#purchaseSignal").textContent="";
   $("#purchaseEconomicInfo").textContent="";
-  const strategySignal=$("#purchaseStrategySignal");if(strategySignal){strategySignal.textContent="";strategySignal.className="fa2-purchase-strategy hidden"}
   purchaseId=null;
   purchaseMode="new";
   restoreActionReturnContext();
@@ -3257,7 +3254,6 @@ $("#purchaseForm").addEventListener("submit",e=>{
   const minBid=configuredMinBid();
   if(!Number.isInteger(price) || price < minBid) return;
   const p=getPlayer(purchaseId);
-  if(p && !fa2ConfirmStrategyOverride(p,price))return;
   const clubLimit=configuredClubLimit();
   if(purchaseMode==="new" && p && clubLimit&&teamClubCount(mineTeam(),p.club)>=clubLimit){
     alert(clubLimitMessage(mineTeam(),p));
@@ -3315,8 +3311,8 @@ function renderSquad(){
   const quota={POR:porQuota,DIF:difQuota,CEN:cenQuota,ATT:Math.max(0,movementQuota-difQuota-cenQuota)};
   const groupRows=rep=>{
     const rows=b.filter(p=>p.reparto===rep);
-    if(!rows.length)return `<div class="hybrid-empty-roster"><span>＋</span><small>${rep==='ATT'?'Attaccanti ancora da acquistare':'Nessun giocatore acquistato'}</small></div>`;
-    return rows.map(p=>`<button class="hybrid-roster-player ${p.outOfListone?"out-of-listone":""}" onclick='openPlayer(${idArg(p.id)})'><span><b>${playerNameHTML(p)}</b><small>${p.club} · ${p.role}${p.outOfListone?" · FUORI LISTONE":""}</small></span><strong>${fmt(state.purchases[p.id]?.price||0)} cr</strong></button>`).join("");
+    if(!rows.length)return `<div class="hybrid-empty-roster"><span aria-hidden="true">—</span><small>${rep==='ATT'?'Attaccanti ancora da acquistare':'Nessun giocatore acquistato'}</small></div>`;
+    return rows.map(p=>`<button type="button" class="hybrid-roster-player ${p.outOfListone?"out-of-listone":""}" aria-label="Apri ${escAttr(playerNameText(p))}, pagato ${fmt(state.purchases[p.id]?.price||0)} crediti" onclick='openPlayer(${idArg(p.id)})'><span><b>${playerNameHTML(p)}</b><small>${p.club} · ${p.role}${p.outOfListone?" · FUORI LISTONE":""}</small></span><strong>${fmt(state.purchases[p.id]?.price||0)} cr <i aria-hidden="true">›</i></strong></button>`).join("");
   };
   const counts={POR:0,DIF:0,CEN:0,ATT:0};b.forEach(p=>counts[p.reparto]++);
   const outOfListoneOwned=b.filter(p=>p.outOfListone).length;
@@ -3326,9 +3322,9 @@ function renderSquad(){
       <div><span>Speso</span><b>${fmt(econ.spent)}</b></div><div><span>Residuo</span><b>${fmt(econ.remaining)}</b></div><div><span>Posti</span><b>${b.length}/${rosterTotal}</b></div><div><span>MAX prossimo</span><b>${fmt(econ.maxNext)}</b></div>
     </div>
     <div class="hybrid-squad-reps">${["POR","DIF","CEN","ATT"].map(rep=>`<div><span>${rep}</span><b>${fmt(byRep[rep])}</b></div>`).join("")}</div>
-    <div class="hybrid-squad-strategy">
-      <button class="${state.strategy==='A'?'active':''}" onclick="setStrategy('A')"><i>A</i><span>Strategia nostra · A<b>4-3-1-2</b></span></button>
-      <button class="${state.strategy==='B'?'active':''}" onclick="setStrategy('B')"><i>B</i><span>Alternativa · B<b>4-3-3</b></span></button>
+    <div class="hybrid-squad-strategy" role="group" aria-label="Strategia della rosa">
+      <button type="button" class="${state.strategy==='A'?'active':''}" aria-pressed="${state.strategy==='A'?'true':'false'}" onclick="setStrategy('A')"><i>A</i><span>Strategia nostra · A<b>4-3-1-2</b></span></button>
+      <button type="button" class="${state.strategy==='B'?'active':''}" aria-pressed="${state.strategy==='B'?'true':'false'}" onclick="setStrategy('B')"><i>B</i><span>Alternativa · B<b>4-3-3</b></span></button>
     </div>
     ${outOfListoneOwned?`<div class="out-listone-roster-legend"><b>* Fuori listone</b><span>${outOfListoneOwned} ${outOfListoneOwned===1?"giocatore da gestire":"giocatori da gestire"} nell'asta di riparazione</span></div>`:""}
     <div class="hybrid-roster-groups">
@@ -3362,8 +3358,8 @@ function renderPlan(targetSelector="#dashboardPlanContent"){
         <div class="strategy-plan-score">${state.strategy==="A"?rec.A.score:rec.B.score}/100</div>
       </div>
       <div class="strategy-buttons">
-        <button class="strategy-btn ${state.strategy==="A"?"active":""}" onclick="setStrategy('A')"><b>A</b><span>4-3-1-2</span></button>
-        <button class="strategy-btn ${state.strategy==="B"?"active":""}" onclick="setStrategy('B')"><b>B</b><span>4-3-3</span></button>
+        <button type="button" class="strategy-btn ${state.strategy==="A"?"active":""}" aria-pressed="${state.strategy==="A"?"true":"false"}" onclick="setStrategy('A')"><b>A</b><span>4-3-1-2</span></button>
+        <button type="button" class="strategy-btn ${state.strategy==="B"?"active":""}" aria-pressed="${state.strategy==="B"?"true":"false"}" onclick="setStrategy('B')"><b>B</b><span>4-3-3</span></button>
       </div>
       <div class="strategy-reason"><b>${rec.headline}</b><br>${rec.reason}</div>
     </div>
@@ -3624,7 +3620,7 @@ function fa2RosterImportPreviewHTML(pending){
   const existingMatch=resolved.teams.find(team=>normalizePlayerName(team.name)===existingMine)?.key??"";
   const complete=resolved.teams.every(team=>team.rows.length===rosterTotal);
   return `<div class="dialog-body roster-import-dialog-body">
-    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Anteprima rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
+    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.3</div><h2>Anteprima rose</h2></div><button class="ghost" type="button" aria-label="Chiudi anteprima rose" onclick="closeRosterImportDialog()">✕</button></div>
     <div class="roster-import-file"><span>${esc(fileName)}</span><b>${resolved.teams.length} squadre · ${resolved.totalPlayers} giocatori</b><small>${resolved.matched}/${resolved.totalPlayers} ID ufficiali riconosciuti</small></div>
     <form id="rosterImportForm">
       <div class="roster-import-fields"><label>Nome lega<input id="rosterImportLeagueName" maxlength="40" value="${escAttr(fa2RosterImportLeagueName(fileName))}" required></label><label>La mia squadra<select id="rosterImportMine" required><option value="">Seleziona…</option>${resolved.teams.map(team=>`<option value="${escAttr(team.key)}" ${team.key===existingMatch?"selected":""}>${esc(team.name)}</option>`).join("")}</select></label></div>
@@ -3639,7 +3635,7 @@ function fa2RosterImportPreviewHTML(pending){
 }
 
 async function fa2StartRosterCsvImport(file){
-  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Controllo file</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Leggo rose, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
+  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.3</div><h2>Controllo file</h2></div><button class="ghost" type="button" aria-label="Chiudi controllo file" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Leggo rose, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
   try{
     const [text,snapshot]=await Promise.all([fa2ReadTextFile(file),fa2RosterImportSnapshot()]);
     const parsed=fa2ParseFantacalcioRosterCsv(text),resolved=fa2ResolveRosterCsv(parsed,snapshot);
@@ -3650,7 +3646,7 @@ async function fa2StartRosterCsvImport(file){
     fa2UpdateRosterImportSelection();
   }catch(error){
     fa2PendingRosterCsvImport=null;
-    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUNA MODIFICA APPLICATA</div><h2>CSV non importabile</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"File non valido.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUNA MODIFICA APPLICATA</div><h2>CSV non importabile</h2></div><button class="ghost" type="button" aria-label="Chiudi errore importazione" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"File non valido.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
   }
 }
 
@@ -3700,7 +3696,7 @@ function fa2ApplyRosterCsvImport(){
     updateBackupAlert();refresh();
     const mine=resolved.teams.find(team=>team.key===ownKey),mineRemaining=configuredBudget()-(mine?.spent||0);
     fa2PendingRosterCsvImport=null;
-    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body roster-import-success"><div class="safety-modal-head"><div><div class="eyebrow">IMPORT COMPLETATO · A5.2.1</div><h2>Rose sincronizzate</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-finished"><span>OK</span><h2>${teams.length} squadre · ${total} giocatori</h2><p>${esc(mine?.name||"La mia squadra")} · ${fmt(mineRemaining)} crediti residui</p></div><div class="listone-sync-success-box"><b>Motori ricalcolati</b><span>Dashboard, Leghe, Strategia, budget, inflazione, Opponent Intelligence e Copilot leggono ora la stessa fotografia.</span></div><div class="dialog-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog();switchView('leagueView')">Apri Leghe</button><button class="primary" type="button" onclick="closeRosterImportDialog();switchView('dashboardView')">Dashboard</button></div></div>`);
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body roster-import-success"><div class="safety-modal-head"><div><div class="eyebrow">IMPORT COMPLETATO · A5.3</div><h2>Rose sincronizzate</h2></div><button class="ghost" type="button" aria-label="Chiudi importazione completata" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-finished"><span>OK</span><h2>${teams.length} squadre · ${total} giocatori</h2><p>${esc(mine?.name||"La mia squadra")} · ${fmt(mineRemaining)} crediti residui</p></div><div class="listone-sync-success-box"><b>Motori ricalcolati</b><span>Dashboard, Leghe, Strategia, budget, inflazione, Opponent Intelligence e Copilot leggono ora la stessa fotografia.</span></div><div class="dialog-actions"><button class="ghost" type="button" onclick="closeRosterImportDialog();switchView('leagueView')">Apri Leghe</button><button class="primary" type="button" onclick="closeRosterImportDialog();switchView('dashboardView')">Dashboard</button></div></div>`);
   }catch(error){
     appliedListoneSync=previousListone;
     if(previousListone)localStorage.setItem(LISTONE_SYNC_STORAGE,JSON.stringify(previousListone));else localStorage.removeItem(LISTONE_SYNC_STORAGE);
@@ -3754,7 +3750,7 @@ function rosterForLeagueTeam(team){
     .map(p=>({p,price:Number(state.sold[p.id]?.price||0)}));
 }
 
-/* Alpha 5.2.1 — export rose compatibile con Leghe Fantacalcio.
+/* Alpha 5.3 — export rose compatibile con Leghe Fantacalcio.
    Struttura verificata sul CSV ufficiale: separatore $,$,$ seguito da
    nome squadra, ID profilo ufficiale e prezzo. L'export è in sola lettura. */
 function fa2CsvCell(value){
@@ -3864,7 +3860,7 @@ function fa2RosterExportBlockersHTML(pending){
 function fa2RosterExportPreviewHTML(pending){
   const rosterTotal=configuredRosterTotal(),complete=pending.complete,ready=!pending.blockers.length;
   return `<div class="dialog-body roster-import-dialog-body roster-export-dialog-body">
-    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Esporta rose</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div>
+    <div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.3</div><h2>Esporta rose</h2></div><button class="ghost" type="button" aria-label="Chiudi esportazione rose" onclick="closeRosterImportDialog()">✕</button></div>
     <div class="roster-import-file"><span>${esc(pending.filename)}</span><b>${pending.teams.length} squadre · ${pending.totalPlayers} giocatori</b><small>${pending.matched}/${pending.totalPlayers} ID ufficiali verificati</small></div>
     <div class="roster-export-format"><b>FORMATO LEGHE FANTACALCIO</b><span>Nessuna intestazione · separatore $,$,$ · squadra, ID ufficiale, prezzo</span></div>
     <div class="roster-import-team-list">${pending.teams.map(team=>`<div class="roster-import-team ${team.isMine?"mine":""}"><span><b>${esc(team.name)}</b><small>${team.rows.length}/${rosterTotal} giocatori${team.isMine?" · MIA SQUADRA":""}</small></span><span><b>${fmt(team.spent)} spesi</b><small>${fmt(team.remaining)} residui</small></span></div>`).join("")}</div>
@@ -3878,7 +3874,7 @@ function fa2RosterExportPreviewHTML(pending){
 
 async function fa2StartRosterCsvExport(){
   if(!state.league)return;
-  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.2.1</div><h2>Preparo l'export</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Verifico squadre, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
+  fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">FANTACALCIO CSV · A5.3</div><h2>Preparo l'export</h2></div><button class="ghost" type="button" aria-label="Chiudi preparazione export" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-loading"><span class="sync-spinner"></span><b>Verifico squadre, prezzi e ID ufficiali…</b><small>Nessun dato dell'asta viene modificato.</small></div></div>`);
   try{
     const snapshot=await fa2RosterImportSnapshot(),pending=fa2BuildRosterCsvExport(snapshot);
     if(!pending.blockers.length){
@@ -3892,7 +3888,7 @@ async function fa2StartRosterCsvExport(){
     const button=$("#downloadRosterCsvBtn");if(button&&!button.disabled)button.onclick=fa2DownloadRosterCsv;
   }catch(error){
     fa2PendingRosterCsvExport=null;
-    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUN FILE CREATO</div><h2>Export non disponibile</h2></div><button class="ghost" type="button" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"Controllo non riuscito.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
+    fa2OpenRosterImportDialog(`<div class="dialog-body roster-import-dialog-body"><div class="safety-modal-head"><div><div class="eyebrow">NESSUN FILE CREATO</div><h2>Export non disponibile</h2></div><button class="ghost" type="button" aria-label="Chiudi errore esportazione" onclick="closeRosterImportDialog()">✕</button></div><div class="listone-sync-warning">${esc(error?.message||"Controllo non riuscito.")}</div><p class="muted">Rose, prezzi, squadre e strategia sono rimasti invariati.</p><button class="primary full-btn" type="button" onclick="closeRosterImportDialog()">Chiudi</button></div>`);
   }
 }
 
@@ -3941,7 +3937,7 @@ function renderLeagues(){
     $("#leagueView").innerHTML=`
       <div class="section-title"><h2>Leghe</h2></div>
       <div class="league-csv-import-card primary-import">
-        <div><span>FANTACALCIO CSV · A5.2.1</span><b>Importa automaticamente lega, squadre, rose e prezzi</b><small>Scegli il file esportato da Leghe Fantacalcio; dopo l'anteprima indicherai qual è la tua squadra.</small></div>
+        <div><span>FANTACALCIO CSV · A5.3</span><b>Importa automaticamente lega, squadre, rose e prezzi</b><small>Scegli il file esportato da Leghe Fantacalcio; dopo l'anteprima indicherai qual è la tua squadra.</small></div>
         <button id="importLeagueRosterBtn" class="primary" type="button">IMPORTA ROSE CSV</button>
       </div>
       <div class="card league-empty-state">
@@ -3970,7 +3966,7 @@ function renderLeagues(){
     </div>
 
     <div class="league-csv-import-card">
-      <div><span>ROSE FANTACALCIO · A5.2.1</span><b>Importa, aggiorna o esporta le rose ufficiali</b><small>${league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).length,0)} assegnazioni correnti · export in sola lettura con verifica ID e prezzi</small></div>
+      <div><span>ROSE FANTACALCIO · A5.3</span><b>Importa, aggiorna o esporta le rose ufficiali</b><small>${league.teams.reduce((sum,team)=>sum+rosterForLeagueTeam(team).length,0)} assegnazioni correnti · export in sola lettura con verifica ID e prezzi</small></div>
       <div class="league-csv-actions"><button id="exportLeagueRosterBtn" class="primary" type="button">ESPORTA ROSE CSV</button><button id="importLeagueRosterBtn" class="ghost" type="button">IMPORTA / AGGIORNA CSV</button></div>
     </div>
 
@@ -4126,8 +4122,8 @@ function renderSettings(){
   $("#settingsView").innerHTML=`<div class="section-title"><h2>Impostazioni</h2></div>
     ${fa2RegulationCard()}
     <div class="card safety-settings-card ${state.protectedMode?"protected":""}">
-      <div class="safety-settings-head"><span>${state.protectedMode?"LOCK":"OPEN"}</span><div><h3>Modalità Asta protetta</h3><p>${state.protectedMode?"Reset, import backup ed eliminazione lega sono bloccati.":"Attivala prima dell'asta per evitare operazioni distruttive accidentali."}</p></div></div>
-      <button id="toggleProtectionBtn" class="${state.protectedMode?"dangerbtn":"primary"}">${state.protectedMode?"Disattiva protezione":"Attiva protezione"}</button>
+      <div class="safety-settings-head"><span>${state.protectedMode?"PROTETTA":"LIBERA"}</span><div><h3>Modalità Asta protetta</h3><p>${state.protectedMode?"Reset, import backup ed eliminazione lega sono bloccati.":"Attivala prima dell'asta per evitare operazioni distruttive accidentali."}</p></div></div>
+      <button id="toggleProtectionBtn" type="button" aria-pressed="${state.protectedMode?"true":"false"}" class="${state.protectedMode?"dangerbtn":"primary"}">${state.protectedMode?"Disattiva protezione":"Attiva protezione"}</button>
       <div class="toolbar safety-settings-toolbar"><button id="openSafetyCenterBtn" class="ghost">Registro / Undo</button><button id="manualSnapshotBtn" class="ghost">Snapshot ora</button></div>
     </div>
     <div class="card" style="margin-top:10px"><h3>Watchlist</h3><p class="muted">${Object.keys(state.watchlist||{}).length} giocatori seguiti. Usa SEGUI nelle liste o in Asta Live.</p><button id="openWatchlistBtn" class="ghost">Apri watchlist</button></div>
@@ -4188,7 +4184,22 @@ function renderSettings(){
   };
 }
 function switchView(id){
-  state.view=id;$$('.view').forEach(v=>v.classList.toggle("active",v.id===id));$$('.tab').forEach(t=>t.classList.toggle("active",t.dataset.view===id));
+  const target=document.getElementById(id);if(!target)return;
+  const previousView=state.view,app=document.getElementById("app");
+  state.view=id;
+  $$('.view').forEach(v=>{
+    const active=v.id===id;
+    v.classList.toggle("active",active);
+    v.setAttribute("aria-hidden",active?"false":"true");
+  });
+  $$('.tab').forEach(t=>{
+    const active=t.dataset.view===id;
+    t.classList.toggle("active",active);
+    if(active)t.setAttribute("aria-current","page");else t.removeAttribute("aria-current");
+  });
+  const settingsBtn=$("#settingsBtn"),settingsActive=id==="settingsView";
+  settingsBtn?.classList.toggle("active",settingsActive);
+  if(settingsActive)settingsBtn?.setAttribute("aria-current","page");else settingsBtn?.removeAttribute("aria-current");
   if(id==="dashboardView")renderDashboard();
   if(id==="playersView")renderPlayers();
   if(id==="squadView")renderSquad();
@@ -4196,6 +4207,10 @@ function switchView(id){
   if(id==="leagueView")renderLeagues();
   if(id==="formationsView")renderFormationsView();
   if(id==="settingsView")renderSettings();
+  if(app&&previousView!==id){
+    app.scrollTop=0;
+    requestAnimationFrame(()=>{app.scrollTop=0});
+  }
   normalizeIOSViewport();
 }
 $$('.tab').forEach(t=>t.onclick=()=>switchView(t.dataset.view));
@@ -4237,7 +4252,7 @@ function lockInit(){
 ensureInitialSnapshot();refresh();lockInit();maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.();
 setInterval(()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},5*60*1000);
 document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"){maybeRefreshFormationsLive();window.FA2PlayerIntelligence?.maybeRefresh?.()}},{passive:true});
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.2.1").catch(()=>{}));
+if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js?v=2.0.0-alpha.5.3").catch(()=>{}));
 
 /* =========================================================
    FantaAsta2.0 alpha 3.9 — Module Switch Advisor
@@ -4560,7 +4575,7 @@ function fa2OpenSlotAnalysis(slotKey){
   const altHtml=(a.alternatives||[]).map((x,i)=>fa2CandidateHTML(x,`ALT ${i+1}`)).join("");
   const valueHtml=(a.values||[]).map(x=>fa2CandidateHTML(x,"VALUE")).join("");
   $("#fa2SlotDialogContent").innerHTML=`<div class="dialog-body fa2-slot-dialog-body">
-    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α4.1</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" onclick="fa2SlotDialog.close()">✕</button></div>
+    <div class="section-title"><div><div class="eyebrow">STRATEGY SLOT LAB · α4.1</div><h2>${esc(slotInstance.label)}</h2><p class="muted">${esc(result.primary.module.name)}${result.secondary?` + ${esc(result.secondary.module.name)}`:""}</p></div><button class="ghost" type="button" aria-label="Chiudi analisi slot" onclick="fa2SlotDialog.close()">✕</button></div>
     <div class="fa2-slot-summary"><div><span>PRIORITÀ</span><b>${esc(a.priority?.label||"—")}</b></div><div><span>VALORE MINIMO</span><b>${a.minimumScore||0}/100</b></div><div><span>BUDGET BASE</span><b>${a.budget.perSlot}</b></div><div><span>SCARSITÀ</span><b>${a.summary.scarcity}</b></div><div><span>FORTI</span><b>${a.summary.strongCount}</b></div><div><span>PROFONDITÀ</span><b>${a.summary.depth}</b></div></div>
     <div class="fa2-slot-note">Il MAX strategico resta separato dal MAX LIVE.${reservedIds.size?` Per evitare conflitti, ${reservedIds.size} candidati già riservati negli altri slot sono esclusi da questa analisi.`:""}</div>
     <div class="fa2-candidate-section"><h3>TARGET</h3>${a.target?fa2CandidateHTML(a.target,"TARGET"):'<p class="muted">Nessun candidato.</p>'}</div>
@@ -4582,27 +4597,6 @@ function fa2SaveCurrentSlotPlan(){
   fa2SavePurchasePlan(plan);
   const d=$("#fa2SlotDialog");if(d?.open)d.close();
   if(state.view==="strategyView")renderStrategyView();
-}
-function fa2StrategyPriceState(p,price){
-  const g=fa2StrategyGuidanceForPlayer(p);if(!g?.maxRecommended)return null;
-  const cap=Math.max(1,Number(g.maxRecommended)),n=Number(price),base={...g,cap};
-  if(!Number.isFinite(n)||n<=0)return {...base,className:"neutral",label:`${g.label} · ${g.slot} · MAX strategico ${fmt(cap)}`};
-  const delta=n-cap;
-  if(delta<=0)return {...base,className:"ok",label:`OK STRATEGIA · ${fmt(n)}/${fmt(cap)} cr`};
-  if(n<=cap*1.08)return {...base,className:"warn",label:`ATTENZIONE · +${fmt(delta)} cr sopra MAX strategico`};
-  return {...base,className:"stop",label:`STOP STRATEGICO · +${fmt(delta)} cr oltre il tetto`};
-}
-function fa2UpdatePurchaseStrategySignal(p,price){
-  const el=$("#purchaseStrategySignal");if(!el)return;
-  const st=fa2StrategyPriceState(p,price);
-  if(!st){el.className="fa2-purchase-strategy hidden";el.textContent="";return}
-  el.className=`fa2-purchase-strategy ${st.className}`;
-  el.innerHTML=`<span>${esc(st.label)}</span><small>${esc(st.primaryName||"Strategia")}${st.secondaryName?` + ${esc(st.secondaryName)}`:""}${st.dynamicBudget?` · budget slot ${fmt(st.dynamicBudget)} cr`:""} · ${esc(st.label.startsWith("STOP")?"richiede conferma per forzare":"Piano Strategia attivo")}</small>`;
-}
-function fa2ConfirmStrategyOverride(p,price){
-  const st=fa2StrategyPriceState(p,price);if(!st||Number(price)<=st.cap)return true;
-  const severe=st.className==="stop";
-  return confirm(`${severe?"STOP STRATEGICO":"ATTENZIONE STRATEGIA"}\n\n${p.name}: prezzo ${fmt(price)} cr\nMAX strategico: ${fmt(st.cap)} cr\nScostamento: +${fmt(Number(price)-st.cap)} cr\n\nIl MAX LIVE non viene modificato. Vuoi forzare comunque l'acquisto?`);
 }
 window.fa2OpenSlotAnalysis=fa2OpenSlotAnalysis;
 window.fa2OpenPlayerFromSlot=fa2OpenPlayerFromSlot;
@@ -4658,11 +4652,11 @@ function renderStrategyView(){
   const piCoverage=piDiagnostics
     ?`${piDiagnostics.matched}/${piDiagnostics.total} abbinati (${String(piDiagnostics.coverage).replace(".",",")}%) · resolver ${String(piDiagnostics.resolutionRate).replace(".",",")}% sui casi candidati · ${piDiagnostics.ambiguous} da verificare · ${piDiagnostics.missing} senza storico`
     :`${piStatus.count||0} giocatori nel feed`;
-  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.2.1</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
+  root.innerHTML=`<div class="fa2-hero"><span>FANTAASTA2.0 · STRATEGY + AUCTION INTELLIGENCE α5.3</span><h2>Strategia</h2><p>Regulation Studio, Player Intelligence, Piano Strategia e dati delle Leghe alimentano decisioni coerenti. Auction Copilot riunisce questi segnali in Asta Live senza modificare automaticamente rosa, modulo o piano.</p></div>
     <div class="fa2-pi-strip ${piStatus.className}"><div><span>PLAYER INTELLIGENCE · RESOLVER ${esc(window.FA2PlayerIntelligence?.RESOLVER_VERSION||"A4.1")}</span><b>${esc(piStatus.label)}</b><small>${esc(piCoverage)} · ${esc(window.FA2PlayerIntelligence?.generatedLabel?.()||"—")}</small></div><button id="fa2RefreshPI" class="ghost">Aggiorna dati</button></div>
     <div class="fa2-reg-strip alpha4"><div><span>Budget</span><b>${sum.budget}</b></div><div><span>Rosa</span><b>${sum.roster}</b></div><div><span>Under</span><b>${sum.under}</b></div><div><span>Switch</span><b>${String(sum.switchMode).toUpperCase()}</b></div><div><span>Disponibilità</span><b>${sum.availability}</b></div><div><span>Voti</span><b>${sum.scoringSource}</b></div><div><span>Soglie gol</span><b>${sum.goalBands}</b></div><div><span>Modificatori</span><b>${sum.modifiers}</b></div></div>
-    <div class="fa2-mode-grid"><button class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono">1 MODULO</button><button class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual">2 MODULI</button><button class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto">AUTO LISTONE</button></div>
-    <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid"><button class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>
+    <div class="fa2-mode-grid" role="group" aria-label="Metodo strategia"><button type="button" class="fa2-mode ${profile.mode==="mono"?"active":""}" data-fa2-mode="mono" aria-pressed="${profile.mode==="mono"?"true":"false"}">1 MODULO</button><button type="button" class="fa2-mode ${profile.mode==="dual"?"active":""}" data-fa2-mode="dual" aria-pressed="${profile.mode==="dual"?"true":"false"}">2 MODULI</button><button type="button" class="fa2-mode ${profile.mode==="auto"?"active":""}" data-fa2-mode="auto" aria-pressed="${profile.mode==="auto"?"true":"false"}">AUTO LISTONE</button></div>
+    <div class="fa2-scope-card"><span>BASE ANALISI</span><div class="fa2-scope-grid" role="group" aria-label="Base dell'analisi"><button type="button" class="fa2-scope ${profile.scope!=="live"?"active":""}" data-fa2-scope="full" aria-pressed="${profile.scope!=="live"?"true":"false"}"><b>LISTONE COMPLETO</b><small>Strategia pre-asta</small></button><button type="button" class="fa2-scope ${profile.scope==="live"?"active":""}" data-fa2-scope="live" aria-pressed="${profile.scope==="live"?"true":"false"}"><b>MERCATO LIVE</b><small>Solo disponibili ora</small></button></div></div>
     <div class="fa2-config-card"><div class="fa2-config-grid"><label>Modulo principale<select id="fa2Primary" ${profile.mode==="auto"?"disabled":""}>${fa2StrategyModuleOptions(profile.primary)}</select></label><label>Modulo alternativo<select id="fa2Secondary" ${profile.mode!=="dual"?"disabled":""}>${fa2StrategyModuleOptions(profile.secondary)}</select></label></div><button id="fa2Generate" class="primary">${profile.mode==="auto"?"ANALIZZA LISTONE":"CREA STRATEGIA"}</button><button id="fa2EditReg" class="ghost fa2-edit-reg" type="button">Modifica regolamento</button></div>
     <div id="fa2StrategyResult">${fa2RenderStrategyResult(cached)}</div>`;
   $$("[data-fa2-mode]").forEach(btn=>btn.onclick=()=>{FA2Strategy.saveProfile({...FA2Strategy.loadProfile(),mode:btn.dataset.fa2Mode});fa2InvalidateModuleAdvisor();sessionStorage.removeItem("fa2_strategy_result_v35");renderStrategyView()});

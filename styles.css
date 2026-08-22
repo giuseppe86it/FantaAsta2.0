@@ -3275,7 +3275,7 @@ body{
    ========================================================= */
 .fa2-player-plan.alpha34{display:flex;justify-content:space-between;align-items:center;gap:10px}.fa2-plan-cap{flex:0 0 auto;text-align:center;padding:7px 10px;border:1px solid #2b8a65;border-radius:11px;background:#123a2c}.fa2-plan-cap span{font-size:7px}.fa2-plan-cap b{font-size:15px;color:#71e5b1;margin-top:2px}
 .fa2-saved-plan.active{box-shadow:inset 0 0 0 1px rgba(57,214,150,.08)}.fa2-plan-row.rich{position:relative;display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:3px 8px;align-items:center;padding:9px 2px;border-top:1px solid rgba(77,117,103,.35)}.fa2-plan-row.rich>span{grid-row:1/3;color:#6de1aa;font-size:9px;font-weight:950}.fa2-plan-target{min-width:0;border:0;background:transparent;color:var(--text);text-align:left;padding:0}.fa2-plan-target b{display:block;font-size:11px}.fa2-plan-target small{display:block;color:#8fa5b8;font-size:8px;margin-top:2px}.fa2-plan-row.rich>em{font-style:normal;font-size:7px;font-weight:900;padding:4px 6px;border-radius:999px;background:#183048;color:#a9bbcc;white-space:nowrap}.fa2-plan-row.rich.available>em{background:#123a2c;color:#74e5b2}.fa2-plan-row.rich.mine>em{background:#143754;color:#8fd0ff}.fa2-plan-row.rich.lost>em{background:#442124;color:#ff9aa3}.fa2-plan-alts{grid-column:2/-1;color:var(--muted);font-size:8px;white-space:normal!important}.fa2-plan-reopen{grid-column:2/-1;justify-self:start;border:1px solid #2c4a64;border-radius:8px;background:#10223a;color:#b8c8d7;padding:5px 8px;font-size:8px}.fa2-persist-note{margin-top:8px}
-.purchase-economic-info{flex-wrap:wrap}.purchase-economic-info span{flex:1 1 30%;min-width:90px}.fa2-purchase-strategy{margin:7px 0 10px;padding:9px 10px;border:1px solid #2c4a64;border-radius:11px;background:#102136}.fa2-purchase-strategy.hidden{display:none}.fa2-purchase-strategy span{display:block;font-size:10px;font-weight:950}.fa2-purchase-strategy small{display:block;margin-top:3px;color:#9fb1c3;font-size:8px}.fa2-purchase-strategy.ok{border-color:#2b8a65;background:#103326}.fa2-purchase-strategy.ok span{color:#70e5b0}.fa2-purchase-strategy.warn{border-color:#8a672e;background:#332715}.fa2-purchase-strategy.warn span{color:#ffc767}.fa2-purchase-strategy.stop{border-color:#8b3940;background:#381b20}.fa2-purchase-strategy.stop span{color:#ff8c96}.fa2-purchase-strategy.neutral span{color:#b9ccdd}
+.purchase-economic-info{flex-wrap:wrap}.purchase-economic-info span{flex:1 1 30%;min-width:90px}
 @media(max-width:520px){.fa2-player-plan.alpha34{align-items:stretch}.fa2-plan-row.rich{grid-template-columns:38px minmax(0,1fr)}.fa2-plan-row.rich>em{grid-column:2;justify-self:start}.fa2-plan-alts,.fa2-plan-reopen{grid-column:2}.purchase-economic-info span{flex-basis:45%}}
 
 
@@ -3369,7 +3369,7 @@ body{
 @media(max-width:390px){.fa2-next-call-budget{align-items:flex-start;flex-direction:column;gap:2px}.fa2-next-call-target b{font-size:11px}}
 
 /* =========================================================
-   FantaAsta2.0 Alpha 5.2.1 — Import / Export Rose CSV
+   FantaAsta2.0 Alpha 5.3 — Import / Export Rose CSV
    ========================================================= */
 .league-csv-import-card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px;margin:0 0 14px;padding:15px 16px;border:1px solid #2f7c61;border-radius:17px;background:linear-gradient(145deg,#0e342a,#0d2234);box-shadow:inset 0 0 0 1px rgba(65,224,163,.06),0 9px 24px rgba(0,0,0,.16)}
 .league-csv-import-card.primary-import{border-color:#39d99a;background:linear-gradient(145deg,#103c2e,#0d2637)}
@@ -3389,3 +3389,189 @@ body{
 .roster-export-blockers{margin-top:10px;padding:11px 12px;border:1px solid #a97828;border-radius:12px;background:#352515}.roster-export-blockers b,.roster-export-blockers span{display:block}.roster-export-blockers b{color:#ffc75e;font-size:10px;letter-spacing:.055em}.roster-export-blockers span{margin-top:3px;color:#dec79c;font-size:8.5px}.roster-export-blockers ul{margin:7px 0 0;padding-left:17px;color:#eadfc8;font-size:8.5px;line-height:1.45}.roster-export-blockers li+li{margin-top:3px}
 @media(max-width:520px){.league-csv-import-card{grid-template-columns:1fr;gap:10px;padding:14px}.league-csv-import-card button{width:100%;min-width:0}.roster-import-fields{grid-template-columns:1fr}.roster-import-status{grid-template-columns:1fr;gap:3px}.roster-import-diff{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:360px){.roster-import-dialog-body{padding:14px}.roster-import-dialog-body .safety-modal-head{top:-14px;margin:-14px -14px 10px;padding:14px}.roster-import-actions{bottom:-14px;margin:11px -14px -14px;padding:10px 14px 14px}.roster-import-team{gap:7px;padding:8px}.roster-import-team b{font-size:10px}}
+
+/* =========================================================
+   FantaAsta2.0 Alpha 5.3 — Mobile UX & Accessibility pass
+   ========================================================= */
+:where(button,[role="button"],summary){touch-action:manipulation}
+:where(button,[role="button"],summary):focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible{
+  outline:3px solid #8af2c5!important;
+  outline-offset:3px;
+  box-shadow:0 0 0 5px rgba(67,227,160,.14)!important;
+}
+
+.topbar{padding:calc(10px + env(safe-area-inset-top)) 14px 9px!important}
+.topbar h1{margin-top:2px;font-size:29px!important;line-height:1.04}
+.topbar .eyebrow{font-size:11px!important;line-height:1.25}
+.hybrid-settings{width:44px!important;height:44px!important}
+.hybrid-settings.active{border-color:#43e3a0!important;background:#12382d!important;color:#71e8b5!important;box-shadow:inset 0 0 0 1px rgba(67,227,160,.18)}
+.hybrid-tabbar .tab{min-height:55px}
+.hybrid-tabbar .tab small{font-size:10px!important}
+
+.watch-btn,
+.watch-detail,
+.live-watch{
+  display:inline-flex!important;
+  min-width:44px!important;
+  min-height:44px!important;
+  align-items:center;
+  justify-content:center;
+}
+.watch-btn{padding:0 10px!important}
+.watch-detail{padding:8px 11px!important;font-size:11px!important}
+.live-watch{width:auto!important;padding:8px 7px!important;font-size:10px!important}
+.search-clear,
+.fa2-next-call-head button,
+.live-close,
+.safety-modal-head>.ghost,
+.report-head>.ghost,
+.assignment-editor-head>.ghost,
+.formation-dialog-head>.ghost,
+.listone-sync-head>.ghost{
+  min-width:44px!important;
+  width:44px!important;
+  min-height:44px!important;
+  height:44px!important;
+  display:inline-grid!important;
+  place-items:center;
+}
+.search-clear{right:5px!important}
+.player-search-wrap .search,.live-search .search{padding-right:56px!important}
+.fa2-mode,
+.fa2-scope,
+.fa2-slot-lab button,
+.fa2-critical button,
+.finance-phase-track button,
+.phase-next,
+.fa2-edit-reg,
+.fa2-reg-actions button{
+  min-height:44px!important;
+}
+.fa2-mode{font-size:11px!important}
+.fa2-scope b{font-size:11px!important}.fa2-scope small{font-size:10px!important}
+.fa2-slot-lab button,.fa2-critical button{font-size:10.5px!important}
+
+.finance-system-details>summary,
+.finance-plan-details>summary,
+.dashboard-plan-details>summary,
+.league-edit-details>summary,
+.league-team-card>summary,
+.fa2-reg-details>summary,
+.fa2-reg-studio-section>summary,
+.player-intelligence-details>summary,
+.fa2-copilot-more>summary{
+  position:relative;
+  min-height:44px;
+  padding-right:34px!important;
+  cursor:pointer;
+}
+.finance-system-details>summary::after,
+.finance-plan-details>summary::after,
+.dashboard-plan-details>summary::after,
+.league-edit-details>summary::after,
+.league-team-card>summary::after,
+.fa2-reg-details>summary::after,
+.fa2-reg-studio-section>summary::after,
+.player-intelligence-details>summary::after,
+.fa2-copilot-more>summary::after{
+  content:"⌄";
+  position:absolute;
+  right:12px;
+  top:50%;
+  color:#8fa5ba;
+  font-size:18px;
+  line-height:1;
+  transform:translateY(-55%);
+  transition:transform .16s ease;
+}
+.finance-system-details[open]>summary::after,
+.finance-plan-details[open]>summary::after,
+.dashboard-plan-details[open]>summary::after,
+.league-edit-details[open]>summary::after,
+.league-team-card[open]>summary::after,
+.fa2-reg-details[open]>summary::after,
+.fa2-reg-studio-section[open]>summary::after,
+.player-intelligence-details[open]>summary::after,
+.fa2-copilot-more[open]>summary::after{
+  transform:translateY(-45%) rotate(180deg);
+}
+
+.player[data-id]{position:relative;cursor:pointer}
+.player[data-id]:active{transform:scale(.995)}
+.player-market-state{position:relative;padding-right:24px}
+.player-open-control{position:absolute;right:-12px;top:50%;display:grid;min-width:44px;width:44px;min-height:44px;height:44px;place-items:center;padding:0;border:0;background:transparent;color:#7890a7;font-size:22px;line-height:1;transform:translateY(-50%)}
+.player-open-control:active{color:#70e7b3}
+.hybrid-roster-player>button{cursor:pointer}
+.hybrid-roster-player>button:active{transform:scale(.995)}
+.hybrid-roster-player strong i{color:#7e94aa;font-size:18px;font-style:normal}
+.hybrid-empty-roster span{width:auto!important;height:auto!important;border:0!important;border-radius:0!important;background:transparent!important;font-size:22px!important}
+.club-tile,.formation-name-chip,.fa2-slot-summary>div,.fa2-reg-strip>div{cursor:default!important}
+
+.players-auction-live-strip{
+  width:100%;
+  grid-template-columns:auto auto minmax(0,1fr) auto!important;
+  color:var(--text);
+  text-align:left;
+  cursor:pointer;
+}
+.players-auction-live-strip strong{align-self:center;color:#6fe6b2;font-size:10px;letter-spacing:.045em;white-space:nowrap}
+.players-auction-live-strip:active{transform:scale(.995)}
+
+#playerDialog{max-height:94dvh;overflow:auto}
+#playerDialog .dialog-body{padding-top:0}
+.player-dialog-head{
+  position:sticky;
+  top:0;
+  z-index:5;
+  margin:0 -19px 10px!important;
+  padding:15px 19px 12px;
+  background:linear-gradient(180deg,#0c1b2d 82%,rgba(12,27,45,.94));
+}
+.player-quick-actions{display:flex;gap:8px;margin:10px 0 2px}
+.player-quick-actions button{flex:1;min-height:44px}
+.player-intelligence-details{margin-top:10px;overflow:hidden;border:1px solid #2c526b;border-radius:14px;background:#0d2134}
+.player-intelligence-details>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 34px 12px 13px!important;list-style:none;color:#70e7b3;font-size:10px;font-weight:900;letter-spacing:.055em}
+.player-intelligence-details>summary::-webkit-details-marker{display:none}
+.player-intelligence-details>summary small{color:#99adbf;font-size:9px;font-weight:700;letter-spacing:0}
+.player-intelligence-details .pi-card{margin:0;border:0;border-top:1px solid #28475d;border-radius:0;box-shadow:none}
+
+#liveDialog{overflow:auto}
+.live-dialog-head{
+  position:sticky;
+  top:-17px;
+  z-index:7;
+  margin:-17px -17px 10px;
+  padding:14px 17px 9px;
+  background:linear-gradient(180deg,#0b192b 84%,rgba(11,25,43,.95));
+}
+.fa2-copilot-more{margin-top:8px;overflow:hidden;border:1px solid #2a465f;border-radius:11px;background:#0d1e31}
+.fa2-copilot-more>summary{display:flex;align-items:center;padding:10px 34px 10px 11px!important;list-style:none;color:#a9bbcd;font-size:9px;font-weight:850;letter-spacing:.045em}
+.fa2-copilot-more>summary::-webkit-details-marker{display:none}
+.fa2-copilot-more .fa2-copilot-why{margin:0;border:0;border-top:1px solid #4a492a;border-radius:0}
+.fa2-copilot-more .fa2-copilot-runtime{margin:0;padding:7px}
+
+@media(max-width:390px){
+  .hybrid-tabbar .tab small{font-size:9.5px!important}
+  .players-auction-live-strip{grid-template-columns:auto minmax(0,1fr) auto!important}
+  .players-auction-live-strip small{grid-column:1/-1!important}
+  .players-auction-live-strip strong{grid-column:3;grid-row:1}
+  .player-dialog-head{margin:0 -15px 9px!important;padding:13px 15px 11px}
+  .player-intelligence-details>summary{align-items:flex-start;flex-direction:column;gap:2px}
+}
+@media(max-width:360px){
+  .hybrid-tabbar .tab small{font-size:8.7px!important}
+  .topbar h1{font-size:27px!important}
+}
+@media(max-width:700px){
+  input,select,textarea{font-size:16px!important}
+}
+@media(pointer:coarse){
+  button,summary,label.ghost{min-height:44px}
+  button{-webkit-tap-highlight-color:rgba(67,227,160,.16)}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
+}
